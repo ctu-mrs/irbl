@@ -21,7 +21,7 @@
 
   ```bash
   cd ~/git/mrs_apptainer/user_ros_workspace/src
-  git clone --branch irbl git@github.com:ctu-mrs/rbl.git
+  git clone git@github.com:ctu-mrs/irbl.git
   cd ../../
   ./example_wrapper
   cd user_ros_workspace
