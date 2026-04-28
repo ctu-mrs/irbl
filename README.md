@@ -41,4 +41,4 @@ to run, go to "goto_end" to set the final goal (run the last command in history 
 
 This code was used for some of the results reported in the following papers: 
 
-- [Perception-Aware Communication-Free Multi-UAV Coordination in the Wild]()
+- [Perception-Aware Communication-Free Multi-UAV Coordination in the Wild](https://arxiv.org/abs/2603.08379)
