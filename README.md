@@ -31,7 +31,7 @@
  ## ▶️ run simulation 
 
 ```bash  
-cd src/rbl/tmux/forest5
+cd src/irbl/tmux/forest5
 ./start.sh
 ```
 
