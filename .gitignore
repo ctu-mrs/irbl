@@ -1,7 +1,8 @@
 *.pkl
 *.eps
 *.log
-# *.bag
+*.bag
+*.mcap
 .vscode/
 *.pdf
 *.csv
