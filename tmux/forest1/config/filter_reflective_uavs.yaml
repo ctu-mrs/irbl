@@ -5,7 +5,7 @@ filter_reflective_uavs:
     search_radius: 0.7
     max_distance_from_seed: 0.7
     max_removed_points: 200
-    ouster: true
+    ouster: false
     time_keep: 0.2
     load_gt_uav_positions: false
     keep_cloud_dt: 0.01
