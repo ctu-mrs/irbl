@@ -142,6 +142,6 @@ windows:
         # - export UAV_NAME=uav1; waitForRos; ros2 launch map_generator map_generator.launch map_frame:=map map_size_x:=$MAP_LENGTH map_size_y:=$MAP_WIDTH map_size_z:=$MAP_HEIGHT map_obs_num:=$MAP_OBS_NUM map_circle_num:=$MAP_CIRCLE_NUM
         # - ros2 bag play -l super_dense_ros2/super_dense_ros2.mcap
         # - ros2 bag play -l forest/forest.mcap
-        - ros2 bag play -l rosbag2_2026_04_29-11_59_36_0.mcap
+        - ./download_bag.sh && ros2 bag play -l rosbag.mcap
         # - ros2 bag play -l circle_ros2/circle_ros2.mcap
         - ./map_tf.sh
