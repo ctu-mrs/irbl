@@ -2,6 +2,7 @@
 *.eps
 *.log
 *.bag
+*.mcap
 .vscode/
 *.pdf
 *.csv
