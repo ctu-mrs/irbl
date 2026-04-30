@@ -24,10 +24,12 @@ def generate_launch_description():
     uav_name = LaunchConfiguration("uav_name")
     standalone = LaunchConfiguration("standalone")
     container_name = LaunchConfiguration("container_name")
-
-    # 👇 SINGLE SOURCE OF TRUTH
     custom_config = LaunchConfiguration("custom_config")
+    pcl_topic = LaunchConfiguration("pcl_topic")  # 👈 NEW
 
+    # -------------------------------------------------
+    # Launch description + arguments
+    # -------------------------------------------------
     ld = LaunchDescription([
 
         DeclareLaunchArgument(
@@ -45,16 +47,22 @@ def generate_launch_description():
             default_value=""
         ),
 
-        # 👇 user-facing argument
         DeclareLaunchArgument(
             "custom_config",
             default_value=default_config_path,
             description="Path to config file"
         ),
+
+        # 👇 NEW ARGUMENT
+        DeclareLaunchArgument(
+            "pcl_topic",
+            default_value="/uav2/losos_server/current_submap_pc",
+            description="Input point cloud topic"
+        ),
     ])
 
     # -------------------------------------------------
-    # Node
+    # Node definition
     # -------------------------------------------------
     rbl_controller_node = ComposableNode(
 
@@ -65,10 +73,8 @@ def generate_launch_description():
 
         parameters=[
             custom_config,
-
             {"config": custom_config},
             {"custom_config": custom_config},
-
             {"simulation": True},
             {"uav_name": uav_name},
             {"control_frame": [uav_name, "/world_origin"]},
@@ -77,10 +83,10 @@ def generate_launch_description():
         remappings=[
             ("~/odom_in", "estimation_manager/odom_main"),
             ("~/alt_in", "estimation_manager/garmin_agl/agl_height"),
-            # ("~/pcl_in", "losos_server/current_submap_pc"),
-            # ("~/pcl_in", "/map_generator/global_cloud"),
-            ("~/pcl_in", "/uav2/losos_server/current_submap_pc"),
-            # ("~/pcl_in", "filter_reflective_uavs/filtered_cloud"),
+
+            # 👇 NOW CONFIGURABLE
+            ("~/pcl_in", pcl_topic),
+
             ("~/octomap_in", "octomap_server/octomap_local_binary"),
             ("~/group_states_in", "filter_reflective_uavs/pose_vel"),
             ("~/tracker_cmd_in", "control_manager/tracker_cmd"),
