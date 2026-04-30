@@ -31,4 +31,4 @@ fi
 echo "[INFO] Bag ready: $OUT_FILE"
 
 echo "[INFO] Playing bag..."
-ros2 bag play "$OUT_FILE" -r 0.001 -l
+ros2 bag play "$OUT_FILE" -r 0.1 -l
