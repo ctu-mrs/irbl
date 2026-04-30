@@ -1,5 +1,9 @@
 *.swp
 *.swo
+*.bag
+*.pcd
 *.mcap
+*.png
+*.html
 __pycache__
 */.tmuxinator.yml

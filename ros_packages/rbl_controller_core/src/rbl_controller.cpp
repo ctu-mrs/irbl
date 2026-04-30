@@ -1126,7 +1126,7 @@ void RBLController::computeCentroid(Eigen::Vector3d&              centroid,  // 
     return;
   }
 
-  std::cout << "[RBLController]: Destitnation: [" << destination[0] << ", " << destination[1] << ", " << destination[2] << "]" << std::endl;
+  // std::cout << "[RBLController]: Destitnation: [" << destination[0] << ", " << destination[1] << ", " << destination[2] << "]" << std::endl;
   std::vector<double> x_in, y_in, z_in;
   for (const auto& point : cell) {
     x_in.push_back(point[0]);
@@ -1177,7 +1177,7 @@ void RBLController::computeCentroid(Eigen::Vector3d&              centroid,  // 
     min_distance = params_.radius - (agent_pos - centroid).norm();
   }
 
-  std::cout << "[RBLController]: vel: " << agent_vel_.norm() << ", beta: " << beta << ", threshold "<< threshold_active << std::endl;
+  // std::cout << "[RBLController]: vel: " << agent_vel_.norm() << ", beta: " << beta << ", threshold "<< threshold_active << std::endl;
   // double dist_centroid_to_boundary = std::sqrt(std::pow((centroid[0] - ), 2) + std::pow((centroid[1] - ), 2) +
   // std::pow((centroid[2] - ), 2));
  
