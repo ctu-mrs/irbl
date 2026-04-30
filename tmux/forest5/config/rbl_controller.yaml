@@ -13,8 +13,8 @@ rbl_controller:
   limited_fov: true 
   only_2d: false
   ciri: true
-  lidar_tilt: 20.0 # [deg]
-  lidar_fov: 59.0 #[deg]
+  # lidar_tilt: 20.0 # [deg]
+  # lidar_fov: 59.0 #[deg]
   lidar_tilt: 90.0 # [deg]
   lidar_fov: 180.0 #[deg]
   # limited_fov: true
