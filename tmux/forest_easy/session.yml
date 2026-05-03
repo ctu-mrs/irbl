@@ -100,7 +100,7 @@ windows:
   - rviz:
       layout: tiled
       panes:
-        - rviz2 rviz
+        - rviz2 -d forest_easy.rviz
  
   # - layout:
   #     layout: tiled
