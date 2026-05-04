@@ -118,3 +118,8 @@ windows:
       panes:
         - ros2 run ros2_console_tools node_commander
         - ros2 run ros2_console_tools topic_monitor
+        
+  - tf_connector:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_tf_connector mrs_tf_connector.launch.py config:=./config/tf_connector.yaml 

@@ -1,6 +1,6 @@
 dynamic:
 
-  realtime_factor: 0.4 # [-]
+  realtime_factor: 1.0 # [-]
 
 individual_takeoff_platform:
   enabled: false
