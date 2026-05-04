@@ -1,0 +1,120 @@
+# do not modify these
+root: ./
+name: simulation
+socket_name: mrs
+attach: false
+# tmux_options: -f ~/.config/tmux/tmux.conf
+tmux_options: -f /etc/ctu-mrs/tmux.conf
+# you can modify these
+startup_window: activation
+# pre_window: export RUN_TYPE=simulation; export UAV_TYPE=x500; export BOND=false; export CUSTOM_CONFIG=./config/custom_config.yaml; export WORLD_CONFIG=./config/world_config.yaml; export NETWORK_CONFIG=./config/network_config.yaml; export PLATFORM_CONFIG=`rospack find mrs_multirotor_simulator`/config/mrs_uav_system/$UAV_TYPE.yaml
+
+pre_window: 
+  - export UAV_NAME=uav1
+  - export USE_SIM_TIME="true"
+  - export RUN_TYPE=simulation 
+  - export UAV_TYPE=x500
+  - export CUSTOM_CONFIG=./config/custom_config.yaml 
+  - export WORLD_CONFIG=./config/world_config.yaml 
+  - export WORLD_FILE=`ros2 pkg prefix mrs_gazebo_common_resources`/share/mrs_gazebo_common_resources/worlds/forest.sdf
+  # - export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+  - export PLATFORM_CONFIG=`ros2 pkg prefix mrs_uav_gazebo_simulator`/share/mrs_uav_gazebo_simulator/config/mrs_uav_system/$UAV_TYPE.yaml
+  - export MAP_LENGTH=28.0; export MAP_WIDTH=25.0; export MAP_HEIGHT=10.0; export MAP_OBS_NUM=20; export MAP_CIRCLE_NUM=0
+
+windows:
+  - router:
+      layout: tiled
+      panes:
+        - ros2 run rmw_zenoh_cpp rmw_zenohd
+  - core:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; ros2 launch mrs_uav_core core.launch.py
+          platform_config:=$PLATFORM_CONFIG
+          custom_config:=./config/custom_config.yaml
+          world_config:=./config/world_config.yaml
+          network_config:=./config/network_config.yaml
+        - export UAV_NAME=uav2; ros2 launch mrs_uav_core core.launch.py
+          platform_config:=$PLATFORM_CONFIG
+          custom_config:=./config/custom_config.yaml
+          world_config:=./config/world_config.yaml
+          network_config:=./config/network_config.yaml
+        # - export UAV_NAME=uav3; ros2 launch mrs_uav_core core.launch.py
+        #   platform_config:=$PLATFORM_CONFIG
+        #   custom_config:=./config/custom_config.yaml
+        #   world_config:=./config/world_config.yaml
+        #   network_config:=./config/network_config.yaml
+  - status:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; ros2 run mrs_uav_status status.sh
+        - export UAV_NAME=uav2; ros2 run mrs_uav_status status.sh
+        # - export UAV_NAME=uav3; ros2 run mrs_uav_status status.sh
+  - activation:
+      layout: tiled
+      synchronize: after
+      panes:
+        # - history -s ./activation.sh
+        - export UAV_NAME=uav1
+        - export UAV_NAME=uav2
+        # - export UAV_NAME=uav3; waitForTakeoff; history -s ./activation.sh
+  - rbl_controller:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; waitForTakeoff; ros2 launch rbl_controller_node rbl_controller.launch.py custom_config:=./config/rbl_controller.yaml pcl_topic:=/map_generator/global_cloud
+        - export UAV_NAME=uav2; waitForTakeoff; ros2 launch rbl_controller_node rbl_controller.launch.py custom_config:=./config/rbl_controller.yaml pcl_topic:=/map_generator/global_cloud
+        # - export UAV_NAME=uav3; waitForTakeoff; ros2 launch rbl_controller_node rbl_controller.launch.py custom_config:=./config/rbl_controller.yaml pcl_topic:=/map_generator/global_cloud
+  - simulator:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_multirotor_simulator multirotor_simulator.launch.py custom_config:=./config/simulator.yaml
+
+  # - automatic_start:
+  #     layout: tiled
+  #     panes:
+  #       - export UAV_NAME=uav1; waitForTime; ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
+  #       - export UAV_NAME=uav2; waitForTime; ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
+  # - takeoff:
+  #     layout: tiled
+  #     panes:
+  #       - export UAV_NAME=uav1; waitForControl; ros2 service call /$UAV_NAME/hw_api/arming 1; sleep 2; ros2 service call /$UAV_NAME/hw_api/offboard; exit
+  #       - export UAV_NAME=uav2; waitForControl; ros2 service call /$UAV_NAME/hw_api/arming 1; sleep 2; ros2 service call /$UAV_NAME/hw_api/offboard; exit
+  - midair_activation:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; waitForCore; sleep 2; ./midair_activation.sh
+        - export UAV_NAME=uav2; waitForCore; sleep 2; ./midair_activation.sh
+        # - export UAV_NAME=uav3; waitForCore; sleep 2;./midair_activation.sh
+  - hw_api:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; ros2 launch mrs_multirotor_simulator hw_api.launch.py 
+        - export UAV_NAME=uav2; ros2 launch mrs_multirotor_simulator hw_api.launch.py
+        # - export UAV_NAME=uav3; ros2 launch mrs_multirotor_simulator hw_api.launch.py
+  - rviz:
+      layout: tiled
+      panes:
+        - rviz2 -d forest_easy.rviz
+
+  - filter_reflective_uavs:
+      layout: tiled
+      synchronize: after
+      panes:
+        - export UAV_NAME=uav1; ros2 launch filter_reflective_uavs filter_reflective_uavs.launch.py uav_name:=$UAV_NAME global_frame:=$UAV_NAME/world_origin lidar3d_in:=/map_generator/global_cloud
+        - export UAV_NAME=uav2; ros2 launch filter_reflective_uavs filter_reflective_uavs.launch.py uav_name:=$UAV_NAME global_frame:=$UAV_NAME/world_origin lidar3d_in:=/map_generator/global_cloud
+        # - export UAV_NAME=uav3; ros2 launch filter_reflective_uavs filter_reflective_uavs.launch.py uav_name:=$UAV_NAME global_frame:=$UAV_NAME/world_origin lidar3d_in:=/map_generator/global_cloud
+
+  - map_generator:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; ./map_tf.sh
+        - export UAV_NAME=uav2; ./map_tf.sh
+        - export UAV_NAME=uav3; ./map_tf.sh
+        # - ros2 bag play -l circle_ros2/circle_ros2.mcap
+        - ./download_and_play_bag.sh
+
+  - tui:
+      layout: tiled
+      panes:
+        - ros2 run ros2_console_tools node_commander
+        - ros2 run ros2_console_tools topic_monitor
