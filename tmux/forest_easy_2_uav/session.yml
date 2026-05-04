@@ -109,7 +109,8 @@ windows:
       panes:
         - export UAV_NAME=uav1; ./map_tf.sh
         - export UAV_NAME=uav2; ./map_tf.sh
-        - export UAV_NAME=uav3; ./map_tf.sh
+        # - sleep 2; export UAV_NAME=uav1; ./map_tf1.sh
+        # - sleep 2; export UAV_NAME=uav2; ./map_tf1.sh
         # - ros2 bag play -l circle_ros2/circle_ros2.mcap
         - ./download_and_play_bag.sh
 
