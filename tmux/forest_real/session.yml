@@ -97,6 +97,6 @@ windows:
         # - ros2 bag play -l forest/forest.mcap
         - ./download_and_play_bag.sh
         # - ros2 bag play -l circle_ros2/circle_ros2.mcap
-        - sleep 5; ./map_tf.sh
-        - sleep 6; ./map_realmap.sh
-        - sleep 7; ./map_tf1.sh
+        - export UAV_NAME=uav1; ./map_tf.sh
+        - ./map_realmap.sh
+        - sleep 5; export UAV_NAME=uav1; ./map_tf1.sh
