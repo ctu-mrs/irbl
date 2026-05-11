@@ -1,13 +1,15 @@
-import os
-
+import os, sys
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.substitutions import (
+    LaunchConfiguration,
+    IfElseSubstitution,
+    PythonExpression,
+    EnvironmentVariable,
+)
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, EnvironmentVariable
-
 from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes
 from launch_ros.descriptions import ComposableNode
-
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -26,51 +28,55 @@ def generate_launch_description():
     container_name = LaunchConfiguration("container_name")
     custom_config = LaunchConfiguration("custom_config")
     pcl_topic = LaunchConfiguration("pcl_topic")  # 👈 NEW
+    debug = LaunchConfiguration("debug")
 
     # -------------------------------------------------
     # Launch description + arguments
     # -------------------------------------------------
-    ld = LaunchDescription([
+    ld = LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "uav_name",
+                default_value=EnvironmentVariable("UAV_NAME", default_value="uav1"),
+            ),
+            DeclareLaunchArgument("standalone", default_value="true"),
+            DeclareLaunchArgument("container_name", default_value=""),
+            DeclareLaunchArgument(
+                "custom_config",
+                default_value=default_config_path,
+                description="Path to config file",
+            ),
+            # 👇 NEW ARGUMENT
+            DeclareLaunchArgument(
+                "pcl_topic",
+                default_value="/uav2/losos_server/current_submap_pc",
+                description="Input point cloud topic",
+            ),
+            # this adds the args to the list of args available for this launch files
+            # these args can be listed at runtime using -s flag
+            # default_value is required to if the arg is supposed to be optional at launch time
+            DeclareLaunchArgument(
+                name="debug",
+                default_value="false",
+                description="Runs the node within a gdb debug session.",
+            ),
+        ]
+    )
 
-        DeclareLaunchArgument(
-            "uav_name",
-            default_value=EnvironmentVariable("UAV_NAME", default_value="uav1")
-        ),
-
-        DeclareLaunchArgument(
-            "standalone",
-            default_value="true"
-        ),
-
-        DeclareLaunchArgument(
-            "container_name",
-            default_value=""
-        ),
-
-        DeclareLaunchArgument(
-            "custom_config",
-            default_value=default_config_path,
-            description="Path to config file"
-        ),
-
-        # 👇 NEW ARGUMENT
-        DeclareLaunchArgument(
-            "pcl_topic",
-            default_value="/uav2/losos_server/current_submap_pc",
-            description="Input point cloud topic"
-        ),
-    ])
+    debug = IfElseSubstitution(
+        condition=PythonExpression(['"', debug, '" == "true"']),
+        if_value="debug_roslaunch " + os.ttyname(sys.stdout.fileno()),
+        else_value="",
+    )
 
     # -------------------------------------------------
     # Node definition
     # -------------------------------------------------
     rbl_controller_node = ComposableNode(
-
         package=pkg_name,
         plugin="rbl_controller::WrapperRosRBL",
         name="rbl_controller",
         namespace=uav_name,
-
         parameters=[
             custom_config,
             {"config": custom_config},
@@ -79,14 +85,11 @@ def generate_launch_description():
             {"uav_name": uav_name},
             {"control_frame": [uav_name, "/world_origin"]},
         ],
-
         remappings=[
             ("~/odom_in", "estimation_manager/odom_main"),
             ("~/alt_in", "estimation_manager/garmin_agl/agl_height"),
-
             # 👇 NOW CONFIGURABLE
             ("~/pcl_in", pcl_topic),
-
             ("~/octomap_in", "octomap_server/octomap_local_binary"),
             ("~/group_states_in", "filter_reflective_uavs/pose_vel"),
             ("~/tracker_cmd_in", "control_manager/tracker_cmd"),
@@ -113,7 +116,7 @@ def generate_launch_description():
         LoadComposableNodes(
             target_container=container_name,
             composable_node_descriptions=[rbl_controller_node],
-            condition=UnlessCondition(standalone)
+            condition=UnlessCondition(standalone),
         )
     )
 
@@ -128,7 +131,8 @@ def generate_launch_description():
             executable="component_container_mt",
             composable_node_descriptions=[rbl_controller_node],
             output="screen",
-            condition=IfCondition(standalone)
+            prefix=[debug],
+            condition=IfCondition(standalone),
         )
     )
 
