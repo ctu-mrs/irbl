@@ -603,7 +603,7 @@ void WrapperRosRBL::cbTmSetRef()  // //{
     }
 
   } else {
-    // if (sh_pcl_.newMsg()) {
+    if (sh_pcl_.newMsg()) {
       auto msg = sh_pcl_.getMsg();
       pcl::PointCloud<pcl::PointXYZI> tmp;
       pcl::fromROSMsg(*msg, tmp);
@@ -614,7 +614,7 @@ void WrapperRosRBL::cbTmSetRef()  // //{
       rbl_controller_->setPCL(last_obstacle_cloud_);
       // rbl_controller_->setPCL1(last_obstacle_cloud_);
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
-    // }
+    }
   }
 
   if (!last_obstacle_cloud_) {
