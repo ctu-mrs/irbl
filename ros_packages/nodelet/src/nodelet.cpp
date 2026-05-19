@@ -609,7 +609,7 @@ void WrapperRosRBL::cbTmSetRef()  // //{
       pcl::fromROSMsg(*msg, tmp);
       last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
       
-      std::cout << last_obstacle_cloud_->points.size() << std::endl;
+      // std::cout << last_obstacle_cloud_->points.size() << std::endl;
       pcl_loaded_ = true;
       rbl_controller_->setPCL(last_obstacle_cloud_);
       // rbl_controller_->setPCL1(last_obstacle_cloud_);

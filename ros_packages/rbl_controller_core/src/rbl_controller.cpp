@@ -1012,10 +1012,10 @@ cloud_low_intensity->is_dense = true;
                                      threshold_active);
       }
       else {
-        std::cout << "[RBLController]: Skipping Ciri, low-intensity cloud is empty." << std::endl;
+        // std::cout << "[RBLController]: Skipping Ciri, low-intensity cloud is empty." << std::endl;
       }
       if (cell_B == cell_A) {
-        std::cout << "[RBLController]: Cell A = Cell B" << std::endl;
+        // std::cout << "[RBLController]: Cell A = Cell B" << std::endl;
       } 
 
       if (!success || cell_A.size() == 0) {
@@ -1122,7 +1122,7 @@ void RBLController::computeCentroid(Eigen::Vector3d&              centroid,  // 
   if (cell.empty()) {
     centroid = agent_pos;
     threshold_active = false;
-    std::cout << "[RBLController]: computeCentroid received empty cell, using agent position." << std::endl;
+    // std::cout << "[RBLController]: computeCentroid received empty cell, using agent position." << std::endl;
     return;
   }
 
@@ -1151,7 +1151,7 @@ void RBLController::computeCentroid(Eigen::Vector3d&              centroid,  // 
   if (sum <= std::numeric_limits<double>::epsilon() || !std::isfinite(sum)) {
     centroid = agent_pos;
     threshold_active = false;
-    std::cout << "[RBLController]: ComputeCentroid received invalid weights, using agent position." << std::endl;
+    // std::cout << "[RBLController]: ComputeCentroid received invalid weights, using agent position." << std::endl;
     return;
   }
   centroid = Eigen::Vector3d(sum_x / sum, sum_y / sum, sum_z / sum);
