@@ -143,6 +143,11 @@ install(
   DESTINATION "share/${PROJECT_NAME}"
 )
 
+install(PROGRAMS
+  scripts/odom_path_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # install(
 #   DIRECTORY tmux
 #   USE_SOURCE_PERMISSIONS
