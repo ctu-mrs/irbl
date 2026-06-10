@@ -12,7 +12,7 @@ echo "[INFO] Checking internet connectivity..."
 
 if ! ping -c 1 -W 2 "$HOST" >/dev/null 2>&1; then
   echo "[ERROR] No internet connection or host unreachable: $HOST"
-  exit 1
+  # exit 1
 fi
 
 echo "[INFO] Internet OK"
