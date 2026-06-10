@@ -29,6 +29,7 @@ def generate_launch_description():
     custom_config = LaunchConfiguration("custom_config")
     pcl_topic = LaunchConfiguration("pcl_topic")  # 👈 NEW
     debug = LaunchConfiguration("debug")
+    use_sim_time = LaunchConfiguration("use_sim_time")
 
     # -------------------------------------------------
     # Launch description + arguments
@@ -60,6 +61,12 @@ def generate_launch_description():
                 default_value="false",
                 description="Runs the node within a gdb debug session.",
             ),
+            DeclareLaunchArgument(
+                "use_sim_time",
+                default_value=EnvironmentVariable(
+                    "USE_SIM_TIME", default_value="false"
+                ),
+            ),
         ]
     )
 
@@ -81,7 +88,7 @@ def generate_launch_description():
             custom_config,
             {"config": custom_config},
             {"custom_config": custom_config},
-            {"simulation": True},
+            {"use_sim_time": use_sim_time},
             {"uav_name": uav_name},
             {"control_frame": [uav_name, "/world_origin"]},
         ],
