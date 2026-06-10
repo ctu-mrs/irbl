@@ -70,13 +70,15 @@ windows:
   - automatic_start:
       layout: tiled
       panes:
-        - export UAV_NAME=uav1; waitForControl; ros2 launch mrs_uav_autostart automatic_start.launch.py
-        - export UAV_NAME=uav2; waitForControl; ros2 launch mrs_uav_autostart automatic_start.launch.py
+        - export UAV_NAME=uav1; ros2 launch mrs_uav_autostart automatic_start.launch.py
+          custom_config:=./config/automatic_start.yaml
+        - export UAV_NAME=uav2; ros2 launch mrs_uav_autostart automatic_start.launch.py
+          custom_config:=./config/automatic_start.yaml
   - takeoff:
       layout: tiled
       panes:
-        - export UAV_NAME=uav1; waitForControl; ./takeoff.sh
-        - export UAV_NAME=uav2; waitForControl; ./takeoff.sh
+        - export UAV_NAME=uav1; waitForCore; ./takeoff.sh
+        - export UAV_NAME=uav2; waitForCore; ./takeoff.sh
   - hw_api:
       layout: tiled
       panes:
@@ -98,7 +100,7 @@ windows:
   - map_generator:
       layout: tiled
       panes:
-        - ./tf_map_to_sim_frame.sh
+        - ./tf_sim_to_map.sh
         # - sleep 2; export UAV_NAME=uav1; ./map_tf1.sh
         # - sleep 2; export UAV_NAME=uav2; ./map_tf1.sh
         # - ros2 bag play -l circle_ros2/circle_ros2.mcap
@@ -108,7 +110,7 @@ windows:
   #     panes:
   #       - ros2 run ros2_console_tools node_commander
   #       - ros2 run ros2_console_tools topic_monitor
-  - tf_connector:
-      layout: tiled
-      panes:
-        - ros2 launch mrs_tf_connector mrs_tf_connector.launch.py config:=./config/tf_connector.yaml
+  # - tf_connector:
+  #     layout: tiled
+  #     panes:
+  #       - ros2 launch mrs_tf_connector mrs_tf_connector.launch.py config:=./config/tf_connector.yaml
