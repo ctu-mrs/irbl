@@ -16,6 +16,7 @@
 #include <mrs_msgs/msg/pose_with_covariance_array_stamped.hpp>
 #include <mrs_msgs/msg/reference.hpp>
 #include <mrs_msgs/msg/float64_stamped.hpp>
+#include <mutex>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <octomap_msgs/conversions.h>
 #include <mrs_msgs/srv/reference_stamped_srv.hpp>
@@ -350,11 +351,8 @@ void WrapperRosRBL::initialize()  // //{
   transformer_ = std::make_shared<mrs_lib::Transformer>(node_);
   transformer_->retryLookupNewest(true);
 
-  {
-    std::scoped_lock lck(mtx_rbl_);
     rbl_controller_ = std::make_shared<RBLController>(rbl_params_);
     RCLCPP_INFO_ONCE(node_->get_logger(), "Initialized RBLController with params");
-  }
 
   is_initialized_ = true;
   RCLCPP_INFO_ONCE(node_->get_logger(), "Initialization completed");
@@ -416,7 +414,11 @@ void WrapperRosRBL::updateGroupStates(const filter_reflective_uavs::msg::PoseVel
 
   group_states_ = std::move(updated_group_states);
   RCLCPP_INFO(node_->get_logger(), "Passing %zu group states to RBL", group_states_.size());
+
+    {
+std::scoped_lock lck(mtx_rbl_);
   rbl_controller_->setGroupStates(group_states_);
+  }
 }
 
 void WrapperRosRBL::cbTmSetRef()  // //{
@@ -435,8 +437,6 @@ void WrapperRosRBL::cbTmSetRef()  // //{
   msg_ref->header.frame_id = _frame_;
   msg_ref->header.stamp    = clock_->now();
 
-  {
-    std::scoped_lock lck(mtx_rbl_);
     if (sh_odom_.newMsg()) {
       auto                        odom = sh_odom_.getMsg();
       geometry_msgs::msg::PointStamped tmp_pt;
@@ -448,7 +448,11 @@ void WrapperRosRBL::cbTmSetRef()  // //{
         RCLCPP_ERROR(node_->get_logger(), "Could not transform odometry msg to control frame.");
         return;
       }
+
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setCurrentPosition(pointToEigen(res.value().point));
+    }
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted cur position to rbl");
 
       geometry_msgs::msg::Vector3Stamped tmp_vel;
@@ -460,8 +464,13 @@ void WrapperRosRBL::cbTmSetRef()  // //{
         RCLCPP_ERROR(node_->get_logger(), "Could not transform velocity to control frame.");
         return;
       }
+
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setCurrentVelocity(vectorToEigen(vel_res->vector));
+    }
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted velocity to rbl");
+
       Eigen::Vector3d euler;
 
       double q_x = odom->pose.pose.orientation.x;
@@ -488,13 +497,20 @@ void WrapperRosRBL::cbTmSetRef()  // //{
       double cosy_cosp = 1.0 - 2.0 * (q_y * q_y + q_z * q_z);
       euler.z()        = std::atan2(siny_cosp, cosy_cosp);
 
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setRollPitchYaw(euler);
+    }
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted rpy to rbl");
     }
 
     if (sh_alt_.newMsg()) {
       auto alt = sh_alt_.getMsg();
+
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setAltitude(alt->value);
+    }
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted cur altitude to rbl");
     }
     
@@ -503,8 +519,6 @@ void WrapperRosRBL::cbTmSetRef()  // //{
       updateGroupStates(sh_group_states_.getMsg());
       RCLCPP_INFO_ONCE(node_->get_logger(), "Updated group states");
     }
-
-  }
 
   if (octomap_msg_) {
     if (sh_octomap_.newMsg()) {
@@ -597,7 +611,11 @@ void WrapperRosRBL::cbTmSetRef()  // //{
 
       last_obstacle_cloud_ = cloud;
       pcl_loaded_ = true;
+
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setPCL(last_obstacle_cloud_);
+      }
       // rbl_controller_->setPCL1(last_obstacle_cloud_);
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
     }
@@ -611,7 +629,11 @@ void WrapperRosRBL::cbTmSetRef()  // //{
       
       // std::cout << last_obstacle_cloud_->points.size() << std::endl;
       pcl_loaded_ = true;
+
+    {
+std::scoped_lock lck(mtx_rbl_);
       rbl_controller_->setPCL(last_obstacle_cloud_);
+      }
       // rbl_controller_->setPCL1(last_obstacle_cloud_);
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
     }
@@ -636,7 +658,10 @@ void WrapperRosRBL::cbTmSetRef()  // //{
     return;
   }
 
+    {
+std::scoped_lock lck(mtx_rbl_);
   rbl_controller_->setPCL(cloud);
+  }
   RCLCPP_INFO_ONCE(node_->get_logger(), "Setted curent pcl to rbl");
   pub_viz_cloud.publish(*getVizPCL(cloud, _frame_));
 
@@ -650,12 +675,16 @@ void WrapperRosRBL::cbTmSetRef()  // //{
     // rbl_controller_->setPCL(cloud);
     // pub_viz_cloud.publish(*getVizPCL(cloud, _frame_));
 
+    {
+std::scoped_lock lck(mtx_rbl_);
   auto ret = rbl_controller_->getNextRef();
+
   if (!ret) {
     RCLCPP_ERROR(node_->get_logger(), "Could not get next valid ref");
     return;
   }
   msg_ref->reference = ret.value();
+  }
   
   auto res = sc_set_ref_.callSync(msg_ref);
 
@@ -770,7 +799,6 @@ bool WrapperRosRBL::cbSrvSetBetaD(
     std::scoped_lock lck(mtx_rbl_);
 
     rbl_params_.betaD = req->value;
-
     rbl_controller_->setBetaD(req->value);
   }
 
@@ -785,12 +813,10 @@ bool WrapperRosRBL::cbSrvSetBetaD(
 bool WrapperRosRBL::cbSrvGotoPosition(const std::shared_ptr<mrs_msgs::srv::Vec4::Request>  req,  // //{
                                       const std::shared_ptr<mrs_msgs::srv::Vec4::Response> res)
 {
-  {
     std::scoped_lock lck(mtx_rbl_);
     rbl_controller_->setGoal(Eigen::Vector3d{ req->goal[0], req->goal[1], req->goal[2] });
     RCLCPP_INFO(node_->get_logger(), "RBL goal set to [%.3f, %.3f, %.3f], heading %.3f",
                 req->goal[0], req->goal[1], req->goal[2], req->goal[3]);
-  }
   res->success = true;
   res->message = "Goal set";
   RCLCPP_INFO(node_->get_logger(), "%s", res->message.c_str());

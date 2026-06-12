@@ -436,6 +436,8 @@ std::vector<Eigen::Vector3d> RBLController::getSensedCellA()
 
 std::vector<Eigen::Vector3d> RBLController::getInflatedMap()  // //{
 {
+
+        std::lock_guard<std::mutex> lock(replanner_mutex_);
   return inflated_map_;
 }  // //}
 
