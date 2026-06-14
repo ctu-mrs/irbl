@@ -99,6 +99,7 @@ def generate_launch_description():
             ("~/pcl_in", pcl_topic),
             ("~/octomap_in", "octomap_server/octomap_local_binary"),
             ("~/group_states_in", "filter_reflective_uavs/pose_vel"),
+            ("~/sim_group_poses_in", "/multirotor_simulator/uav_poses"),
             ("~/tracker_cmd_in", "control_manager/tracker_cmd"),
             ("~/ref_out", "control_manager/reference"),
             ("~/goto_out", "~/goto"),
