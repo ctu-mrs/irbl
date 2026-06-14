@@ -23,7 +23,8 @@ pre_window:
 windows:
   - router:
       layout: tiled
-      panes: [ros2 run rmw_zenoh_cpp rmw_zenohd]
+      panes:
+        - ros2 run rmw_zenoh_cpp rmw_zenohd
   - core:
       layout: tiled
       panes:
@@ -32,11 +33,13 @@ windows:
           network_config:=./config/network_config.yaml
   - status:
       layout: tiled
-      panes: [export UAV_NAME=uav1; ros2 run mrs_uav_status status.sh]
+      panes:
+        - export UAV_NAME=uav1; ros2 run mrs_uav_status status.sh
   - activation:
       layout: tiled
       synchronize: after
-      panes: [export UAV_NAME=uav1; waitForTakeoff; history -s ./activation.sh]
+      panes:
+        - export UAV_NAME=uav1; waitForTakeoff; history -s ./activation.sh
   - rbl_controller:
       layout: tiled
       panes:
@@ -53,14 +56,16 @@ windows:
           custom_config:=./config/automatic_start.yaml
   - takeoff:
       layout: tiled
-      panes: [export UAV_NAME=uav1; waitForCore; ./takeoff.sh]
+      panes:
+        - export UAV_NAME=uav1; waitForCore; ./takeoff.sh
   - hw_api:
       layout: tiled
       panes:
         - export UAV_NAME=uav1; ros2 launch mrs_multirotor_simulator hw_api.launch.py
   - rviz:
       layout: tiled
-      panes: [rviz2 -d forest_easy.rviz]
+      panes:
+        - rviz2 -d forest_easy.rviz
   - map_generator:
       layout: tiled
       panes:
