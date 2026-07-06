@@ -23,6 +23,7 @@ pre_window:
   - export MAP_HEIGHT=10.0
   - export MAP_OBS_NUM=20
   - export MAP_CIRCLE_NUM=0
+  - export ATUIN_FILTER_MODE=session
 windows:
   - router:
       layout: tiled
