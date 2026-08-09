@@ -1,0 +1,44 @@
+## 🎥 Multimedia material
+
+![Real-world Experiment (4 UAVs)](forest4.gif)
+
+(speed >>1x)
+
+- https://mrs.fel.cvut.cz/irbl
+
+
+## 🚀 Prerequisites
+
+  Ensure you have the following installed:
+
+  - ** MRS System **  
+    Follow setup instructions here for ROS2: [MRS Apptainer GitHub](https://github.com/ctu-mrs/mrs_apptainer)
+
+  ---
+
+## 🛠 Prepare the Workspace
+
+
+  ```bash
+  cd ~/git/mrs_apptainer/user_ros_workspace/src
+  git clone git@github.com:ctu-mrs/irbl.git
+  cd ../../
+  ./example_wrapper
+  cd user_ros_workspace
+  catkin build --cmake-args -DCMAKE_BUILD_TYPE=Release
+  ```
+
+ ## ▶️ run simulation 
+
+```bash  
+cd src/irbl/tmux/forest5
+./start.sh
+```
+
+wait for takeoff.
+
+to run, go to "goto_end" to set the final goal (run the last command in history in synchronized mode), then to activate the algorithm go to the pane "activation" and run the last command in history in synchronized mode. 
+
+This code was used for some of the results reported in the following papers: 
+
+- [Perception-Aware Communication-Free Multi-UAV Coordination in the Wild](https://arxiv.org/abs/2603.08379)

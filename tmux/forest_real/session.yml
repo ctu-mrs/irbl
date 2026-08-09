@@ -27,6 +27,7 @@ windows:
       layout: tiled
       panes:
         - ros2 run rmw_zenoh_cpp rmw_zenohd
+
   - core:
       layout: tiled
       panes:
@@ -35,24 +36,29 @@ windows:
           custom_config:=./config/custom_config.yaml
           world_config:=./config/world_config.yaml
           network_config:=./config/network_config.yaml
+
   - status:
       layout: tiled
       panes:
         - ros2 run mrs_uav_status status.sh
+
   - activation:
       layout: tiled
       synchronize: after
       panes:
         - export UAV_NAME=uav1; waitForTakeoff; history -s ./activation.sh
+
   - rbl_controller:
       layout: tiled
       panes:
         - export UAV_NAME=uav1; waitForTakeoff; ros2 launch rbl_controller_node rbl_controller.launch.py custom_config:=./config/rbl_controller.yaml pcl_topic:=/uav2/losos_server/current_submap_pc
+
   - goto:
       layout: tiled
       synchronize: after
       panes:
         - 'history -s ros2 service call /uav1/rbl_controller/goto mrs_msgs/srv/Vec4 "{goal: [2.0, 60.0, 2.0, 0.0]}"'
+
   - filter_reflective_uavs:
       layout: tiled
       synchronize: after
@@ -69,6 +75,7 @@ windows:
       panes:
         - ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
         - waitForCore && ./takeoff.sh
+
   - hw_api:
       layout: tiled
       panes:
