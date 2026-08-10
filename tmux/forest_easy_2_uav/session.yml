@@ -53,8 +53,9 @@ windows:
       synchronize: after
       panes:
         # - history -s ./activation.sh
-        - export UAV_NAME=uav1
-        - export UAV_NAME=uav2
+        #
+        - export UAV_NAME=uav1; waitForTakeoff; history -s ./activation.sh
+        - export UAV_NAME=uav2; waitForTakeoff; history -s ./activation.sh
         # - export UAV_NAME=uav3; waitForTakeoff; history -s ./activation.sh
   - rbl_controller:
       layout: tiled
