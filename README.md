@@ -39,6 +39,6 @@ wait for takeoff.
 
 to run, go to "goto_end" to set the final goal (run the last command in history in synchronized mode), then to activate the algorithm go to the pane "activation" and run the last command in history in synchronized mode. 
 
-This code was used for some of the results reported in the following papers: 
+Notice that the results reported in the following paper were obtained from the ROS1 (branch irbl) version of the package 
 
 - [Perception-Aware Communication-Free Multi-UAV Coordination in the Wild](https://arxiv.org/abs/2603.08379)
