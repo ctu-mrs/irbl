@@ -19,7 +19,11 @@ RBLReplanner::RBLReplanner(const ReplannerParams& params) : params_(params)  // 
   // gives the formula below, which budgets for that slop explicitly instead of relying on
   // roundToNextMultiple() happening to leave enough incidental rounding headroom.
   const double margin       = params.encumbrance + params.inflation_bonus;
-  inflation_coeff_          = std::max(0, static_cast<int>(std::ceil(margin / params.replanner_vox_size - 0.5)));
+  // +1 extra cell on top of the mathematically-derived minimum above, as a blanket buffer against
+  // anything the quantization analysis doesn't explicitly model (sensor/localization noise, a
+  // path point that isn't exactly a grid cell center after smoothing, etc.) -- cheap to add and
+  // safety here should not be shaved to the exact bare minimum.
+  inflation_coeff_          = std::max(0, static_cast<int>(std::ceil(margin / params.replanner_vox_size - 0.5))) + 1;
   std::cout << "Inflation coef: " << inflation_coeff_ << std::endl;
   //   int inflation_coeff = std::ceil(encumbrance / map_resolution);
 
@@ -762,6 +766,29 @@ RBLReplanner::AStarPlan(const std::tuple<int,
       if (grid->at(std::get<0>(node_position), std::get<1>(node_position), std::get<2>(node_position)) !=
           0) {  // check if free space
         continue;
+      }
+
+      // No corner-cutting: for a diagonal move (more than one axis changing at once), also
+      // require that the axis-aligned cells it "cuts across" are free, not just the endpoint.
+      // Without this, two blocked cells that only share an edge or corner still leave a diagonal
+      // gap A* is free to slip straight through -- even though that gap can be narrower than the
+      // inflation margin actually guarantees (the margin is only proven safe axis-aligned; cutting
+      // diagonally past a blocked cell's corner can come meaningfully closer to it). This is the
+      // standard fix for exactly that class of grid-planner bug.
+      {
+        const int cx = std::get<0>(current_node->position);
+        const int cy = std::get<1>(current_node->position);
+        const int cz = std::get<2>(current_node->position);
+        const int dx = new_positions[i][0];
+        const int dy = new_positions[i][1];
+        const int dz = new_positions[i][2];
+        bool corner_blocked = false;
+        if (dx != 0 && grid->at(cx + dx, cy, cz) != 0) corner_blocked = true;
+        if (!corner_blocked && dy != 0 && grid->at(cx, cy + dy, cz) != 0) corner_blocked = true;
+        if (!corner_blocked && dz != 0 && grid->at(cx, cy, cz + dz) != 0) corner_blocked = true;
+        if (corner_blocked) {
+          continue;
+        }
       }
 
       Node* new_node = new Node(current_node, node_position);

@@ -15,6 +15,11 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     replanner_params.inflation_bonus    = params.inflation_bonus;
     replanner_params.replanner_vox_size = 0.3;
     replanner_params.replanner_freq     = 1.0;  //[Hz]
+    // Without these, ReplannerParams::z_min/z_max silently stay at their struct defaults (0.5/10.0)
+    // no matter what rbl_controller.yaml's z_min/z_max are set to -- the replanner's own altitude
+    // band would then not actually match the rest of the controller's.
+    replanner_params.z_min              = params.z_min;
+    replanner_params.z_max              = params.z_max;
 
     rbl_replanner_ = std::make_shared<RBLReplanner>(replanner_params);
   }
