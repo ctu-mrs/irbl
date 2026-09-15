@@ -52,6 +52,14 @@ public:
     // long as its own implied speed stays under this), while a jump turns into a straight-line
     // approach at this speed instead of a teleport.
     max_setpoint_speed_ = declare_parameter<double>("max_setpoint_speed", 3.0);
+    // Same reasoning as max_setpoint_speed above, but for yaw: rbl_controller recomputes its
+    // desired heading every cycle by pointing straight at the current CIRI partition centroid, so
+    // a shift in that centroid (a new obstacle, a partition change) can jump the raw heading
+    // reference by a large amount from one cycle to the next. Forwarded straight into
+    // TrajectorySetpoint.yaw with no smoothing, PX4's own yaw controller then tries to snap to it
+    // as fast as its gains allow, which is what shows up as fast/overshooting yaw. Bounds how fast
+    // the yaw setpoint actually sent to PX4 is allowed to turn, in rad/s.
+    max_yaw_rate_     = declare_parameter<double>("max_yaw_rate", 1.0);
     auto_arm_         = declare_parameter<bool>("auto_arm", true);
     arm_after_cycles_ = declare_parameter<int>("arm_after_cycles", 20);
     // PX4 multi-instance SITL namespaces every /fmu/... topic as /<px4_ns>/fmu/... for every
@@ -247,12 +255,42 @@ private:
           commanded_position_ned_ = latest_setpoint_ned_;
         }
       }
+      if (!have_commanded_yaw_) {
+        // First reference ever received: nothing to ramp from yet, jump straight to it.
+        commanded_yaw_ned_ = latest_yaw_ned_;
+        have_commanded_yaw_ = true;
+      }
+      else {
+        const double dt = (stamp - prev_yaw_command_stamp_).seconds();
+        // Shortest-path angular delta, wrapped to (-pi, pi] -- otherwise a setpoint that crosses
+        // the +-pi seam would ramp the long way around.
+        double delta_yaw = std::fmod(latest_yaw_ned_ - commanded_yaw_ned_ + M_PI, 2.0 * M_PI);
+        if (delta_yaw < 0.0) {
+          delta_yaw += 2.0 * M_PI;
+        }
+        delta_yaw -= M_PI;
+        const double max_yaw_step = max_yaw_rate_ * std::max(dt, 0.0);
+        if (std::abs(delta_yaw) > max_yaw_step) {
+          commanded_yaw_ned_ += std::copysign(max_yaw_step, delta_yaw);
+        }
+        else {
+          commanded_yaw_ned_ = latest_yaw_ned_;
+        }
+        // Keep wrapped to (-pi, pi] so it doesn't drift outside that range after many increments.
+        commanded_yaw_ned_ = std::fmod(commanded_yaw_ned_ + M_PI, 2.0 * M_PI);
+        if (commanded_yaw_ned_ < 0.0) {
+          commanded_yaw_ned_ += 2.0 * M_PI;
+        }
+        commanded_yaw_ned_ -= M_PI;
+      }
+      prev_yaw_command_stamp_ = stamp;
+
       prev_command_stamp_ = stamp;
 
       msg.position[0] = static_cast<float>(commanded_position_ned_.x());
       msg.position[1] = static_cast<float>(commanded_position_ned_.y());
       msg.position[2] = static_cast<float>(commanded_position_ned_.z());
-      msg.yaw         = static_cast<float>(latest_yaw_ned_);
+      msg.yaw         = static_cast<float>(commanded_yaw_ned_);
     }
     else {
       // pre-activation: climb straight up to the configured hover altitude and hold, above the
@@ -291,6 +329,7 @@ private:
   double          takeoff_altitude_;
   double          publish_rate_;
   double          max_setpoint_speed_;
+  double          max_yaw_rate_;
   bool            auto_arm_;
   int             arm_after_cycles_;
 
@@ -308,6 +347,11 @@ private:
   Eigen::Vector3d commanded_position_ned_   = Eigen::Vector3d::Zero();
   bool            have_commanded_position_ = false;
   rclcpp::Time    prev_command_stamp_;
+  // Same idea as commanded_position_ned_/have_commanded_position_, but for yaw -- see
+  // publishTrajectorySetpoint().
+  double          commanded_yaw_ned_       = 0.0;
+  bool            have_commanded_yaw_      = false;
+  rclcpp::Time    prev_yaw_command_stamp_;
 
   // | ------------------------ ROS interfaces ------------------------ |
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr             odom_pub_;

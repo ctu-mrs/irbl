@@ -85,7 +85,22 @@ struct ReplannerParams {
   double                                                    replanner_freq;
   double                                                    eps                   = 0.001;
   double                                                    inflation_bonus       = 0.1;
-  double                                                    replanner_vox_size    = 0.1; 
+  double                                                    replanner_vox_size    = 0.1;
+  // [m] altitude (AGL, same convention as RBLParams::z_min/z_max in rbl_controller.yaml) band the
+  // returned path is allowed to occupy -- baked directly into the occupancy grid as a hard block,
+  // so A* structurally cannot produce a waypoint outside it. rbl_controller_core's constructor
+  // doesn't set these two (would need a one-line wire-up there to track rbl_controller.yaml's
+  // z_min/z_max live), so they default to that yaml's current values; adjustable at runtime via
+  // setZMin()/setZMax() in the meantime.
+  double                                                    z_min                 = 0.5;
+  double                                                    z_max                 = 10.0;
+  // Weight on the direction-consistency cost added to A*'s edge cost (see AStarPlan()) -- biases
+  // the *start* of each new plan towards continuing in roughly the same heading as the previous
+  // plan's start, fading out with distance so only the near-agent portion is affected. Always
+  // plans from the agent's actual current position (never a frozen/locked prefix); this is what
+  // keeps the direction from flip-flopping between replans instead. Adjustable at runtime via
+  // setDirectionConsistencyWeight().
+  double                                                    direction_consistency_weight = 5.0;
 };
 
 class RBLReplanner {
@@ -95,11 +110,28 @@ public:
   void setGoal(const Eigen::Vector3d& point);
   void setAltitude(const double& alt);
   void setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud);
+  // Adjusts the altitude band (see ReplannerParams::z_min/z_max) at runtime.
+  void setZMin(double z_min);
+  void setZMax(double z_max);
+  // Adjusts the direction-consistency weight (see ReplannerParams::direction_consistency_weight)
+  // at runtime.
+  void setDirectionConsistencyWeight(double weight);
 
   std::vector<Eigen::Vector3d> getInflatedCloud();
 
   std::vector<Eigen::Vector3d> plan();
   bool replanTimer();
+
+  // Stateless (touches none of RBLReplanner's own mutable members -- _inflated_grid_, agent_pos_,
+  // etc), so unlike plan() this is safe to call from any thread, including the calling thread
+  // itself every control cycle, concurrently with an in-flight async plan(). Checks whether any
+  // point of `path` comes within `safety_radius` of any point in `cloud`. Meant to be called far
+  // more often than the full replan cycle (e.g. every control tick against the live cloud), so a
+  // newly-revealed obstacle on the still-active path is caught immediately instead of only at the
+  // next scheduled replan -- the caller should force an immediate replan when this returns true.
+  static bool pathInCollision(const std::vector<Eigen::Vector3d>&                     path,
+                               const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,
+                               double                                                  safety_radius);
 
 private:
   ReplannerParams                                           params_;
@@ -108,6 +140,19 @@ private:
   double                                                    replanner_period_;
   int                                                       inflation_coeff_;
   double                                                    altitude_;
+  double                                                    z_min_;
+  double                                                    z_max_;
+  double                                                    direction_consistency_weight_;
+  // Heading (unit vector) of the previous plan's own first segment, used by AStarPlan() to bias
+  // the new plan's start towards continuing that same direction. Empty (zero vector) until the
+  // first successful plan.
+  Eigen::Vector3d                                           last_plan_direction_ = Eigen::Vector3d::Zero();
+  bool                                                       have_last_plan_direction_ = false;
+  // Grid z-index bounds corresponding to [z_min_, z_max_] AGL, recomputed each
+  // initializationPlan() call. Everything outside this range is hard-blocked in
+  // fillAndInflateGrid(), so A* can never route through it.
+  int                                                        z_min_idx_ = 0;
+  int                                                        z_max_idx_ = 0;
   Eigen::Vector3d                                           agent_pos_;
   Eigen::Vector3d                                           goal_;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>           cloud_;

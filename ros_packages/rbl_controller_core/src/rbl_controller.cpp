@@ -188,8 +188,33 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 
   if (params_.replanner) {
 
+    // Consume planner result if ready (non-blocking) -- must happen *before* the launch check
+    // below: std::future::get() can only be called once, and .valid() goes false right after, so
+    // consuming first is what lets the launch check below correctly see "not running" on the same
+    // cycle a result finishes. Doing it the other way around (launch check first) meant that once
+    // path_blocked (below) could be true on the very cycle a result became ready, the launch check
+    // would reassign replanner_future_ to a brand new in-flight task before this block ever got to
+    // call .get() on the completed one -- silently discarding every finished plan forever.
+    if (replanner_future_.valid() &&
+        replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+
+      std::lock_guard<std::mutex> lock(replanner_mutex_);
+      path_ = replanner_future_.get();   // latch new path
+    }
+
+    // Cheap, stateless check against the just-refreshed live cloud (see the getGroundCleanCloud()
+    // call just above) -- catches a newly-revealed obstacle on the still-active path well before
+    // the next scheduled replanTimer() tick, so a collision forces an immediate replan instead of
+    // waiting out the rest of the replanner_freq period. Deliberately checked against just
+    // encumbrance (an actual physical collision), not encumbrance + inflation_bonus (the
+    // replanner's soft safety margin) -- a freshly-planned path is expected to legitimately graze
+    // that softer margin (it plans as close as the margin allows), so using it here would trigger
+    // an "emergency" replan on nearly every ordinary plan. The periodic replanTimer() already
+    // handles keeping the path away from the soft margin; this is only for a true emergency.
+    const bool path_blocked = RBLReplanner::pathInCollision(path_, cloud_, params_.encumbrance);
+
     // Launch replanner only if not already running
-    if (rbl_replanner_->replanTimer() &&
+    if ((rbl_replanner_->replanTimer() || path_blocked) &&
         (!replanner_future_.valid() ||
          replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)) {
 
@@ -205,14 +230,6 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
         inflated_map_ = rbl_replanner_->getInflatedCloud();
         return new_path;
       });
-    }
-
-    // Consume planner result if ready (non-blocking)
-    if (replanner_future_.valid() &&
-        replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-
-      std::lock_guard<std::mutex> lock(replanner_mutex_);
-      path_ = replanner_future_.get();   // latch new path
     }
 
     // Use path if available, otherwise keep moving

@@ -21,6 +21,9 @@ RBLReplanner::RBLReplanner(const ReplannerParams& params) : params_(params)  // 
   replanner_period_ = 1.0 / params.replanner_freq;
   first_plan        = true;
   goal_changed_     = false;
+  z_min_            = params.z_min;
+  z_max_            = params.z_max;
+  direction_consistency_weight_ = params.direction_consistency_weight;
 
   _inflated_grid_  = VoxelGrid(_X_, _Y_, _Z_);
   _clearance_grid_ = VoxelGrid(_X_, _Y_, _Z_);
@@ -50,6 +53,21 @@ void RBLReplanner::setAltitude(const double& alt)  // //{
 void RBLReplanner::setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud)  // //{
 {
   cloud_ = cloud;
+}  // //}
+
+void RBLReplanner::setZMin(double z_min)  // //{
+{
+  z_min_ = z_min;
+}  // //}
+
+void RBLReplanner::setZMax(double z_max)  // //{
+{
+  z_max_ = z_max;
+}  // //}
+
+void RBLReplanner::setDirectionConsistencyWeight(double weight)  // //{
+{
+  direction_consistency_weight_ = weight;
 }  // //}
 
 std::vector<Eigen::Vector3d> RBLReplanner::getInflatedCloud()  // //{
@@ -94,9 +112,19 @@ std::vector<Eigen::Vector3d> RBLReplanner::plan()  // //{
   // std::cout << "[RBLReplanner]: Time taken by calculateClearanceGrid: " << duration_clearance.count() << "
   // microseconds" << std::endl;
 
+  // Always plans from the agent's actual current position -- see AStarPlan()'s direction-
+  // consistency bias for how the near-agent heading is kept from flip-flopping between replans
+  // without locking any geometry in place.
   start                = std::chrono::high_resolution_clock::now();
   _path_               = AStarPlan(_agent_pos_, _goal_, _path_, _inflated_grid_, _clearance_grid_);
   path_                = gridPathToWorldPath(_path_);
+  if (path_.size() >= 2) {
+    const Eigen::Vector3d dir = path_[1] - path_[0];
+    if (dir.norm() > 1e-6) {
+      last_plan_direction_     = dir.normalized();
+      have_last_plan_direction_ = true;
+    }
+  }
   stop                 = std::chrono::high_resolution_clock::now();
   auto duration_a_star = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
   // std::cout << "[RBLReplanner]: Time taken by AStarPlan: " << duration_a_star.count() << " microseconds" <<
@@ -193,6 +221,15 @@ bool RBLReplanner::pathBlocked(std::vector<std::tuple<int,
     x = std::get<0>(_path[i]);
     y = std::get<1>(_path[i]);
     z = std::get<2>(_path[i]);
+    // The stored path is world coordinates re-quantized against the *current* (re-centered on the
+    // agent) grid every call, via worldCoordsToGridIdx(), which never clamps -- so a path point
+    // left over from a few cycles ago can land outside the grid entirely once the agent has moved
+    // far enough. grid->at() has no bounds check (segfaults on an out-of-range index), so treat a
+    // point that has left the local map as blocked -- it's stale/invalid either way and this
+    // forces the caller (shouldReplan) to trigger a fresh, in-bounds replan.
+    if (x < 0 || x >= grid->X || y < 0 || y >= grid->Y || z < 0 || z >= grid->Z) {
+      return true;
+    }
     if (grid->at(x, y, z) == 1) {
       return true;
     }
@@ -224,10 +261,25 @@ void RBLReplanner::initializationPlan()  // //{
   _clearance_grid_->clear();
   _agent_pos_ =
       std::make_tuple(_X_ / 2, _Y_ / 2, std::max(static_cast<int>(altitude_ / params_.replanner_vox_size), 0));
+
+  // Grid z-indices for the [z_min_, z_max_] AGL band. agent_pos_.z() - altitude_ is the world z of
+  // "the ground directly below the agent" (grid index 0's own definition -- see
+  // fillAndInflateGrid()'s old floor-only fill), so building world points at that ground level
+  // plus z_min_/z_max_ and reusing the same worldCoordsToGridIdx() everything else already goes
+  // through avoids re-deriving a parallel index formula by hand.
+  Eigen::Vector3d z_min_world_point = agent_pos_;
+  z_min_world_point.z()             = agent_pos_.z() - altitude_ + z_min_;
+  Eigen::Vector3d z_max_world_point = agent_pos_;
+  z_max_world_point.z()             = agent_pos_.z() - altitude_ + z_max_;
+  z_min_idx_                        = std::get<2>(worldCoordsToGridIdx(z_min_world_point));
+  z_max_idx_                        = std::get<2>(worldCoordsToGridIdx(z_max_world_point));
+
   auto _point = worldCoordsToGridIdx(goal_);
   int  x_goal = std::clamp(std::get<0>(_point), 0, _X_ - 1);
   int  y_goal = std::clamp(std::get<1>(_point), 0, _Y_ - 1);
-  int  z_goal = std::clamp(std::get<2>(_point), 0, _Z_ - 1);
+  // Also clamp to the altitude band, in addition to the grid bounds -- a goal above z_max_ or
+  // below z_min_ gets planned towards the closest point within the allowed band instead.
+  int  z_goal = std::clamp(std::get<2>(_point), std::max(z_min_idx_, 0), std::min(z_max_idx_, _Z_ - 1));
   _goal_      = std::make_tuple(x_goal, y_goal, z_goal);
 }  // //}
 
@@ -328,9 +380,19 @@ void RBLReplanner::fillAndInflateGrid(std::optional<VoxelGrid>&                 
     }
   }
 
+  // Hard-block every layer outside [z_min_idx_, z_max_idx_] (the [z_min_, z_max_] AGL band) --
+  // z_min_idx_ alone already subsumes the old "block the ground plane at z=0" behavior whenever
+  // z_min_ > 0, since the agent should never be operating below its own configured floor.
+  const int z_lo = std::clamp(z_min_idx_, 0, grid->Z);
+  const int z_hi = std::clamp(z_max_idx_ + 1, 0, grid->Z);
   for (int x = 0; x < grid->X; ++x) {
     for (int y = 0; y < grid->Y; ++y) {
-      grid->at(x, y, 0) = 1;  // fill the floor
+      for (int z = 0; z < z_lo; ++z) {
+        grid->at(x, y, z) = 1;
+      }
+      for (int z = z_hi; z < grid->Z; ++z) {
+        grid->at(x, y, z) = 1;
+      }
     }
   }
 }  // //}
@@ -558,6 +620,10 @@ RBLReplanner::AStarPlan(const std::tuple<int,
 {
   Node* start_node = new Node(nullptr, closestFreeIdx(_start, grid));
   Node* end_node   = new Node(nullptr, closestFreeIdx(_goal, grid));
+  // Reference point/decay scale for the direction-consistency bias below -- computed once since
+  // it's the same for every child expanded during this whole search.
+  const Eigen::Vector3d start_world           = gridIdxToWorldCoords(start_node->position);
+  constexpr double       kDirectionDecayMeters = 5.0;
 
   std::priority_queue<Node*, std::vector<Node*>, CompareNode> open_list;
   VoxelGrid                                                   closed_voxels(_X_, _Y_, _Z_);
@@ -642,9 +708,29 @@ RBLReplanner::AStarPlan(const std::tuple<int,
       double safety_penalty    = params_.weight_safety / (clearance + params_.eps);
       double deviation_penalty =
           params_.weight_deviation * deviationPenalty(_path, current_node->position, child->position);
+
+      // Biases the plan's own start towards continuing in roughly the same heading as the
+      // *previous* plan's start, so the direction near the agent doesn't flip-flop between
+      // replans even though every plan starts fresh from the agent's actual position (nothing is
+      // geometrically locked in place, unlike a frozen prefix would be). Fades out with distance
+      // from the start, so only the near-agent portion of the route is nudged -- further out is
+      // free to go wherever the goal/obstacles actually require.
+      double direction_penalty = 0.0;
+      if (have_last_plan_direction_) {
+        const Eigen::Vector3d child_world      = gridIdxToWorldCoords(child->position);
+        const Eigen::Vector3d to_child         = child_world - start_world;
+        const double           dist_from_start = to_child.norm();
+        if (dist_from_start > 1e-6) {
+          const double cos_angle           = (to_child / dist_from_start).dot(last_plan_direction_);
+          const double angular_misalignment = 1.0 - cos_angle;  // 0 aligned .. 2 opposite
+          const double fade                 = std::exp(-dist_from_start / kDirectionDecayMeters);
+          direction_penalty                 = direction_consistency_weight_ * angular_misalignment * fade;
+        }
+      }
+
       child->g = current_node->g + dist_parent_child;
       child->h = euclideanDistance(child->position, end_node->position);
-      child->f = child->g + child->h + safety_penalty + deviation_penalty;
+      child->f = child->g + child->h + safety_penalty + deviation_penalty + direction_penalty;
 
       open_list.push(child);
     }
@@ -749,3 +835,26 @@ RBLReplanner::closestFreeIdx(const std::tuple<int,
   }
   return clamped_position;
 }  // //}
+
+bool RBLReplanner::pathInCollision(const std::vector<Eigen::Vector3d>&                     path,
+                                   const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,
+                                   double                                                  safety_radius)  // //{
+{
+  if (path.empty() || !cloud || cloud->points.empty()) {
+    return false;
+  }
+
+  const double r2 = safety_radius * safety_radius;
+  for (const auto& p : path) {
+    for (const auto& pt : cloud->points) {
+      const double dx = pt.x - p.x();
+      const double dy = pt.y - p.y();
+      const double dz = pt.z - p.z();
+      if (dx * dx + dy * dy + dz * dz <= r2) {
+        return true;
+      }
+    }
+  }
+  return false;
+}  // //}
+
