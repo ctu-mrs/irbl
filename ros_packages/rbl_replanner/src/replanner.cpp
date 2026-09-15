@@ -6,7 +6,20 @@ RBLReplanner::RBLReplanner(const ReplannerParams& params) : params_(params)  // 
   voxel_size_ = roundToNextMultiple(params.voxel_size, params.replanner_vox_size);
   inflation_  = roundToNextMultiple(params.encumbrance + params.inflation_bonus, params.replanner_vox_size);
   // std::cout << "[RBLReplanner]: voxel_size_: " << voxel_size_ << ", inflation_: " << inflation_ << std::endl;
-  inflation_coeff_ = std::ceil((inflation_) / params.replanner_vox_size) - 1;
+  // inflation_coeff_ cells around an obstacle cell get hard-blocked (see fillAndInflateGrid()), so
+  // a free cell's center sits at least (inflation_coeff_ + 1) * replanner_vox_size from the nearest
+  // *obstacle cell center*. That is NOT the same as the true world-space clearance the caller
+  // actually wants (encumbrance + inflation_bonus), because of quantization on both ends: the raw
+  // obstacle point can be up to replanner_vox_size/2 closer to that free cell than its own cell
+  // center is (worldCoordsToGridIdx() rounds to the nearest cell), and a naive
+  // ceil(margin / vox) - 1 doesn't budget for that at all -- e.g. margin=0.6, vox=0.3 rounds to
+  // exactly 2 cells with zero slack, so the true worst-case clearance can fall short of the
+  // intended margin by up to half a voxel. Solving
+  // (inflation_coeff_ + 1) * vox - vox / 2 >= margin for the smallest integer inflation_coeff_
+  // gives the formula below, which budgets for that slop explicitly instead of relying on
+  // roundToNextMultiple() happening to leave enough incidental rounding headroom.
+  const double margin       = params.encumbrance + params.inflation_bonus;
+  inflation_coeff_          = std::max(0, static_cast<int>(std::ceil(margin / params.replanner_vox_size - 0.5)));
   std::cout << "Inflation coef: " << inflation_coeff_ << std::endl;
   //   int inflation_coeff = std::ceil(encumbrance / map_resolution);
 
@@ -119,9 +132,37 @@ std::vector<Eigen::Vector3d> RBLReplanner::plan()  // //{
   _path_               = AStarPlan(_agent_pos_, _goal_, _path_, _inflated_grid_, _clearance_grid_);
   path_                = gridPathToWorldPath(_path_);
   if (path_.size() >= 2) {
-    const Eigen::Vector3d dir = path_[1] - path_[0];
+    // Walk forward along the fresh path until ~1.5m out (not just the first grid cell -- a single
+    // quantized A* step, noisy and zigzag-prone on its own), then EMA-smooth that heading into the
+    // reference used by AStarPlan()'s direction-consistency bias instead of hard-overwriting it
+    // every plan. A hard overwrite means a single transient A* tie-break flip becomes next plan's
+    // bias target, which can amplify oscillation instead of damping it (confirmed empirically:
+    // simply raising the bias weight made worst-case direction swings *worse*, not better, since a
+    // stronger bias just chases the most recent -- possibly wrong -- direction harder). Smoothing
+    // the reference itself is what actually damps a transient flip.
+    constexpr double kRefDist = 1.5;
+    double           accum     = 0.0;
+    Eigen::Vector3d  ref_point = path_.back();
+    for (size_t i = 1; i < path_.size(); ++i) {
+      const double seg = (path_[i] - path_[i - 1]).norm();
+      if (accum + seg >= kRefDist) {
+        const double t = (kRefDist - accum) / std::max(seg, 1e-9);
+        ref_point       = path_[i - 1] + t * (path_[i] - path_[i - 1]);
+        break;
+      }
+      accum += seg;
+    }
+    const Eigen::Vector3d dir = ref_point - path_.front();
     if (dir.norm() > 1e-6) {
-      last_plan_direction_     = dir.normalized();
+      const Eigen::Vector3d new_dir = dir.normalized();
+      if (have_last_plan_direction_) {
+        constexpr double kEmaAlpha = 0.5;
+        const Eigen::Vector3d blended = (1.0 - kEmaAlpha) * last_plan_direction_ + kEmaAlpha * new_dir;
+        last_plan_direction_ = blended.norm() > 1e-6 ? blended.normalized() : new_dir;
+      }
+      else {
+        last_plan_direction_ = new_dir;
+      }
       have_last_plan_direction_ = true;
     }
   }
@@ -392,6 +433,35 @@ void RBLReplanner::fillAndInflateGrid(std::optional<VoxelGrid>&                 
       }
       for (int z = z_hi; z < grid->Z; ++z) {
         grid->at(x, y, z) = 1;
+      }
+    }
+  }
+
+  // Hard-block an inflation_coeff_-thick border around the whole local grid (X/Y faces -- the
+  // world extends well past this bounded window, which is re-centered on the agent every plan()
+  // call). The window has no information about obstacles just past its own edge (they're never
+  // loaded into `cloud`, so never inflated), so without this a path could legitimately hug the
+  // window boundary -- most commonly at the goal, which gets clamped to the grid edge whenever the
+  // real goal lies outside the window (the normal case for any goal farther away than half the
+  // window width) -- and end up closer than the intended safety margin to whatever's just beyond
+  // it. Blocking this border and letting the existing closestFreeIdx() BFS (already used for both
+  // the start and the goal in AStarPlan()) push the goal inward is what actually enforces the same
+  // margin against the unknown as against a known, in-window obstacle.
+  const int bx = std::min(inflation_coeff_, grid->X / 2);
+  const int by = std::min(inflation_coeff_, grid->Y / 2);
+  for (int y = 0; y < grid->Y; ++y) {
+    for (int z = 0; z < grid->Z; ++z) {
+      for (int x = 0; x < bx; ++x) {
+        grid->at(x, y, z)             = 1;
+        grid->at(grid->X - 1 - x, y, z) = 1;
+      }
+    }
+  }
+  for (int x = 0; x < grid->X; ++x) {
+    for (int z = 0; z < grid->Z; ++z) {
+      for (int y = 0; y < by; ++y) {
+        grid->at(x, y, z)             = 1;
+        grid->at(x, grid->Y - 1 - y, z) = 1;
       }
     }
   }
