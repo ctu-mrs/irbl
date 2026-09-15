@@ -1,0 +1,50 @@
+# Custom PX4 firmware parameters for this sim session (px4_sim_2_uav).
+#
+# These are pushed into each running PX4 SITL instance at runtime via `param set <NAME> <VALUE>`,
+# by ../set_px4_params.sh -- the same mechanism fix_arming_healthcheck.sh already uses for
+# NAV_DLL_ACT. Nothing here is a permanent edit of any PX4-Autopilot rootfs/airframe file, so
+# PX4-Autopilot never needs to be rebuilt to pick up a change: edit a value below and either
+# restart the sim session, or re-run ./set_px4_params.sh <window> against an already-running one.
+#
+# Applied to every vehicle in this session (PX4 firmware parameters are per-vehicle-instance, not
+# namespaced by uav_name the way rbl_controller.yaml's params are).
+#
+# Full parameter reference: https://docs.px4.io/main/en/advanced_config/parameter_reference.html
+
+takeoff_landing_rtl:
+  MPC_TKO_ALT: 2.0        # [m] altitude AGL at which a takeoff is considered finished
+  MPC_TKO_SPEED: 1.5      # [m/s] ascent speed during takeoff
+  MPC_LAND_SPEED: 0.7     # [m/s] descent speed during the final landing phase
+  MPC_LAND_ALT1: 10.0     # [m] AGL at which descent speed starts ramping down towards MPC_LAND_SPEED
+  MPC_LAND_ALT2: 5.0      # [m] AGL at which descent speed reaches MPC_LAND_SPEED
+  RTL_RETURN_ALT: 30.0    # [m] climb to this altitude above home before returning
+  RTL_DESCEND_ALT: 10.0   # [m] altitude above home to slow down and prepare to land
+  RTL_LAND_DELAY: -1.0    # [s] hover time at RTL_DESCEND_ALT before landing (-1 = loiter, never land)
+  RTL_TYPE: 0             # 0: return home then land, 1: land at the closest rally point/mission land pattern
+
+estimation:
+  # gz_x500_lidar_down carries a downward-facing LW20 rangefinder, so EKF2_RNG_CTRL is on by
+  # default -- set it to 0 if you switch back to a model without one.
+  EKF2_HGT_REF: 0          # main height reference fused by the EKF: 0 baro, 1 GPS, 2 range sensor, 3 vision
+  EKF2_GPS_CTRL: 7         # bitmask of GPS aiding used by the EKF (1 horiz pos, 2 vert vel, 4 horiz vel)
+  EKF2_EV_CTRL: 0          # bitmask of external vision aiding used by the EKF (0 = disabled)
+  EKF2_RNG_CTRL: 1         # rangefinder use for height: 0 disabled, 1 conditional (near ground), 2 always
+  EKF2_RNG_A_HMAX: 10.0    # [m] max height above ground at which range data still aids the EKF --
+                           # kept near MPC_LAND_ALT1 rather than the LW20's full 100 m range, since
+                           # range fusion assumes flat terrain below and this sim's flight altitudes
+                           # (~2.5 m) never need it further out
+
+velocity_limits:
+  MPC_XY_VEL_MAX: 5.0      # [m/s] maximum horizontal velocity in Auto/Offboard modes
+  MPC_Z_VEL_MAX_UP: 3.0    # [m/s] maximum ascent velocity
+  MPC_Z_VEL_MAX_DN: 1.5    # [m/s] maximum descent velocity
+  MPC_XY_CRUISE: 3.0       # [m/s] default horizontal cruise speed in Auto mode
+  MPC_ACC_HOR_MAX: 5.0     # [m/s^2] maximum horizontal acceleration in Auto/Offboard modes
+  MPC_JERK_MAX: 8.0        # [m/s^3] maximum jerk (0 disables jerk-limited trajectory shaping)
+
+failsafe_commander:
+  COM_RC_IN_MODE: 0        # RC input handling: 0 RC and joystick, 1 joystick only, 4 disable both
+  COM_OBL_ACT: 2            # action on Offboard signal loss: 0 land, 1 hold (loiter), 2 RTL
+  COM_OBL_RC_ACT: 0         # action on Offboard loss with a valid RC still present: 0 hand control back to RC
+  COM_LOW_BAT_ACT: 2        # low battery action: 0 warn only, 1 return, 2 land, 3 return then land at critical
+  GF_ACTION: 2               # geofence breach action: 0 none, 1 warn, 2 hold, 3 RTL, 4 terminate

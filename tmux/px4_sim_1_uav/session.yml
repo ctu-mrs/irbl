@@ -22,11 +22,17 @@ windows:
   - px4_sitl:
       layout: tiled
       panes:
-        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500
+        # gz_x500_lidar_down: plain x500 airframe plus a downward-facing LW20 rangefinder,
+        # published to PX4 as a distance_sensor (see custom_config.yaml's EKF2_RNG_CTRL).
+        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500_lidar_down
   - px4_healthcheck_fix:
       layout: tiled
       panes:
         - ./fix_arming_healthcheck.sh
+  - px4_custom_params:
+      layout: tiled
+      panes:
+        - ./set_px4_params.sh
   - px4_bridge:
       layout: tiled
       panes:

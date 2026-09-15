@@ -32,7 +32,9 @@ windows:
       panes:
         # Pane 0 (instance 0): builds (if needed), starts the gz world and spawns model "x500_0"
         # at the origin.
-        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500
+        # gz_x500_lidar_down: plain x500 airframe plus a downward-facing LW20 rangefinder,
+        # published to PX4 as a distance_sensor (see custom_config.yaml's EKF2_RNG_CTRL).
+        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500_lidar_down
         # Pane 1 (instance 1): waits for instance 0's build AND for its gz world to actually be up and
         # publishing, then joins it standalone (PX4_GZ_STANDALONE=1). Without PX4_GZ_STANDALONE,
         # this instance re-runs px4-rc.gzsim's own "is a world already running" detection instead
@@ -45,7 +47,7 @@ windows:
         # the same "just wait for the world, then attach" path the official multi-vehicle gz sim
         # instructions use for every non-hosting instance, which does not have this problem.
         #
-        # GZ_IP=127.0.0.1: `make px4_sitl gz_x500` (instance 0, above) runs through a CTest/CMake
+        # GZ_IP=127.0.0.1: `make px4_sitl gz_x500_lidar_down` (instance 0, above) runs through a CTest/CMake
         # wrapper that always pins gz-transport discovery to loopback via this same var. Without
         # it here, gz-transport falls back to auto-selecting a network interface -- on a machine
         # with more than one (this one also has wlan0, tailscale0, several docker bridges), that
@@ -55,14 +57,14 @@ windows:
         # course -- not just a boot-time arming failure like the STANDALONE issue above.
         - cd $PX4_DIR && until [ -x ./build/px4_sitl_default/bin/px4 ]; do sleep 1; done;
           until gz topic -l 2>/dev/null | grep -q '^/world/.*/clock'; do sleep 1; done;
-          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500_lidar_down
           PX4_GZ_MODEL_POSE="$UAV2_SPAWN_X,$UAV2_SPAWN_Y,$UAV2_SPAWN_Z,0,0,0"
           ./build/px4_sitl_default/bin/px4 -i 1
         # Pane 2 (instance 2): same as pane 1, just joining the same already-running world at its
         # own offset.
         - cd $PX4_DIR && until [ -x ./build/px4_sitl_default/bin/px4 ]; do sleep 1; done;
           until gz topic -l 2>/dev/null | grep -q '^/world/.*/clock'; do sleep 1; done;
-          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500_lidar_down
           PX4_GZ_MODEL_POSE="$UAV3_SPAWN_X,$UAV3_SPAWN_Y,$UAV3_SPAWN_Z,0,0,0"
           ./build/px4_sitl_default/bin/px4 -i 2
   - px4_healthcheck_fix:
@@ -73,6 +75,12 @@ windows:
         - ./fix_arming_healthcheck.sh px4_sitl.0
         - ./fix_arming_healthcheck.sh px4_sitl.1
         - ./fix_arming_healthcheck.sh px4_sitl.2
+  - px4_custom_params:
+      layout: tiled
+      panes:
+        - ./set_px4_params.sh px4_sitl.0
+        - ./set_px4_params.sh px4_sitl.1
+        - ./set_px4_params.sh px4_sitl.2
   - lazypx4_link:
       layout: tiled
       panes:
@@ -85,11 +93,18 @@ windows:
   - lazypx4:
       layout: tiled
       panes:
-        # lazypx4 just listens on its port (UDP), so it can start any time -- no need to wait for
-        # start_lazypx4_link.sh above; it'll show "no connection" until PX4's stream arrives.
-        - $LAZYPX4_BIN --port $UAV1_LAZYPX4_PORT --lidar-topic /uav1/rbl_controller/cloud
-        - $LAZYPX4_BIN --port $UAV2_LAZYPX4_PORT --lidar-topic /uav2/rbl_controller/cloud
-        - $LAZYPX4_BIN --port $UAV3_LAZYPX4_PORT --lidar-topic /uav3/rbl_controller/cloud
+        # lazypx4 only waits up to 10s for PX4's first heartbeat on startup and never retries after
+        # that (see connect_vehicle() in lazypx4/mavlink/connection.py) -- if it's launched before
+        # start_lazypx4_link.sh has actually issued `mavlink start` on the corresponding PX4 console
+        # (which itself waits for "pxh>", easily >10s into a Gazebo SITL boot), it gets stuck showing
+        # "no connection" and needs a manual restart once the link is finally up. So wait for that
+        # pane's own confirmation echo first.
+        - until tmux -L px4sim3 capture-pane -p -t px4_simulation_3uav:lazypx4_link.0 2>/dev/null | grep -q "for lazypx4"; do sleep 1; done;
+          $LAZYPX4_BIN --port $UAV1_LAZYPX4_PORT --lidar-topic /uav1/rbl_controller/cloud
+        - until tmux -L px4sim3 capture-pane -p -t px4_simulation_3uav:lazypx4_link.1 2>/dev/null | grep -q "for lazypx4"; do sleep 1; done;
+          $LAZYPX4_BIN --port $UAV2_LAZYPX4_PORT --lidar-topic /uav2/rbl_controller/cloud
+        - until tmux -L px4sim3 capture-pane -p -t px4_simulation_3uav:lazypx4_link.2 2>/dev/null | grep -q "for lazypx4"; do sleep 1; done;
+          $LAZYPX4_BIN --port $UAV3_LAZYPX4_PORT --lidar-topic /uav3/rbl_controller/cloud
   - px4_bridge:
       layout: tiled
       panes:
