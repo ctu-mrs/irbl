@@ -2,13 +2,13 @@
 #include <filter_reflective_uavs/msg/pose_velocity_array.hpp>
 #include "rbl_controller_core/rbl_controller.h"
 
-// MRS MSGs (message/service definitions only -- no MRS runtime/flight-stack dependency)
+// Local message/service definitions (replacing mrs_msgs -- no MRS dependency of any kind)
 #include <octomap_msgs/conversions.h>
-#include <mrs_msgs/msg/float64_stamped.hpp>
-#include <mrs_msgs/msg/reference.hpp>
-#include <mrs_msgs/msg/reference_stamped.hpp>
-#include <mrs_msgs/srv/float64_srv.hpp>
-#include <mrs_msgs/srv/vec4.hpp>
+#include <rbl_msgs/msg/float64_stamped.hpp>
+#include <rbl_msgs/msg/reference.hpp>
+#include <rbl_msgs/msg/reference_stamped.hpp>
+#include <rbl_msgs/srv/float64_srv.hpp>
+#include <rbl_msgs/srv/vec4.hpp>
 #include <mutex>
 #include <octomap_msgs/msg/octomap.hpp>
 
@@ -146,18 +146,18 @@ namespace rbl_controller
                                 const std::shared_ptr<std_srvs::srv::Trigger::Response> res);
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_deactivate_control_;
 
-    bool cbSrvGotoPosition(const std::shared_ptr<mrs_msgs::srv::Vec4::Request>  req,
-                           const std::shared_ptr<mrs_msgs::srv::Vec4::Response> res);
-    rclcpp::Service<mrs_msgs::srv::Vec4>::SharedPtr srv_goto_position_;
+    bool cbSrvGotoPosition(const std::shared_ptr<rbl_msgs::srv::Vec4::Request>  req,
+                           const std::shared_ptr<rbl_msgs::srv::Vec4::Response> res);
+    rclcpp::Service<rbl_msgs::srv::Vec4>::SharedPtr srv_goto_position_;
 
-    bool cbSrvSetBetaD(const std::shared_ptr<mrs_msgs::srv::Float64Srv::Request>  req,
-                       const std::shared_ptr<mrs_msgs::srv::Float64Srv::Response> res);
-    rclcpp::Service<mrs_msgs::srv::Float64Srv>::SharedPtr srv_set_betaD_;
+    bool cbSrvSetBetaD(const std::shared_ptr<rbl_msgs::srv::Float64Srv::Request>  req,
+                       const std::shared_ptr<rbl_msgs::srv::Float64Srv::Response> res);
+    rclcpp::Service<rbl_msgs::srv::Float64Srv>::SharedPtr srv_set_betaD_;
 
     // | --------------------- reference output --------------------- |
     // Replaces the old mrs_msgs::srv::ReferenceStampedSrv call into the MRS control manager.
     // A PX4 offboard bridge node subscribes to this topic and forwards it to the autopilot.
-    rclcpp::Publisher<mrs_msgs::msg::ReferenceStamped>::SharedPtr pub_reference_out_;
+    rclcpp::Publisher<rbl_msgs::msg::ReferenceStamped>::SharedPtr pub_reference_out_;
 
     // | --------------------- timer callbacks -------------------- |
 
@@ -209,7 +209,7 @@ namespace rbl_controller
     // | ----------------------- subscribers ---------------------- |
     bool                                                       octomap_msg_;
     SimpleSub<nav_msgs::msg::Odometry>                        sh_odom_;
-    SimpleSub<mrs_msgs::msg::Float64Stamped>                  sh_alt_;
+    SimpleSub<rbl_msgs::msg::Float64Stamped>                  sh_alt_;
     SimpleSub<sensor_msgs::msg::PointCloud2>                  sh_pcl_;
     SimpleSub<octomap_msgs::msg::Octomap>                     sh_octomap_;
     SimpleSub<filter_reflective_uavs::msg::PoseVelocityArray> sh_group_states_;
@@ -356,13 +356,13 @@ namespace rbl_controller
         rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
-    srv_goto_position_ = node_->create_service<mrs_msgs::srv::Vec4>(
+    srv_goto_position_ = node_->create_service<rbl_msgs::srv::Vec4>(
         "~/goto_out",
         std::bind(&WrapperRosRBL::cbSrvGotoPosition, this, std::placeholders::_1, std::placeholders::_2),
         rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
-    srv_set_betaD_ = node_->create_service<mrs_msgs::srv::Float64Srv>(
+    srv_set_betaD_ = node_->create_service<rbl_msgs::srv::Float64Srv>(
         "~/set_betaD",
         std::bind(&WrapperRosRBL::cbSrvSetBetaD, this, std::placeholders::_1, std::placeholders::_2),
         rclcpp::ServicesQoS(),
@@ -370,7 +370,7 @@ namespace rbl_controller
 
     // | ----------------------- reference output ------------------ |
 
-    pub_reference_out_ = node_->create_publisher<mrs_msgs::msg::ReferenceStamped>("~/ref_out", rclcpp::QoS(1));
+    pub_reference_out_ = node_->create_publisher<rbl_msgs::msg::ReferenceStamped>("~/ref_out", rclcpp::QoS(1));
 
     // | ----------------------- publishers ----------------------- |
     pub_viz_position_      = node_->create_publisher<visualization_msgs::msg::Marker>("~/position", rclcpp::QoS(1));
@@ -554,7 +554,7 @@ namespace rbl_controller
     }
     RCLCPP_INFO_ONCE(node_->get_logger(), "After activation");
 
-    mrs_msgs::msg::ReferenceStamped ref_msg;
+    rbl_msgs::msg::ReferenceStamped ref_msg;
     ref_msg.header.frame_id = _control_frame_;
     ref_msg.header.stamp    = clock_->now();
 
@@ -922,8 +922,8 @@ namespace rbl_controller
     return true;
   }  // //}
 
-  bool WrapperRosRBL::cbSrvSetBetaD(const std::shared_ptr<mrs_msgs::srv::Float64Srv::Request>  req,
-                                    const std::shared_ptr<mrs_msgs::srv::Float64Srv::Response> res)
+  bool WrapperRosRBL::cbSrvSetBetaD(const std::shared_ptr<rbl_msgs::srv::Float64Srv::Request>  req,
+                                    const std::shared_ptr<rbl_msgs::srv::Float64Srv::Response> res)
   {
     {
       std::scoped_lock lck(mtx_rbl_);
@@ -940,8 +940,8 @@ namespace rbl_controller
     return true;
   }
 
-  bool WrapperRosRBL::cbSrvGotoPosition(const std::shared_ptr<mrs_msgs::srv::Vec4::Request>  req,  // //{
-                                        const std::shared_ptr<mrs_msgs::srv::Vec4::Response> res)
+  bool WrapperRosRBL::cbSrvGotoPosition(const std::shared_ptr<rbl_msgs::srv::Vec4::Request>  req,  // //{
+                                        const std::shared_ptr<rbl_msgs::srv::Vec4::Response> res)
   {
     std::scoped_lock lck(mtx_rbl_);
     rbl_controller_->setGoal(Eigen::Vector3d{ req->goal[0], req->goal[1], req->goal[2] });

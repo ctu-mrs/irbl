@@ -41,7 +41,7 @@ find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(mrs_msgs REQUIRED)
+find_package(rbl_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(rbl_replanner REQUIRED)
@@ -69,7 +69,7 @@ ament_target_dependencies(
   pcl_conversions
   geometry_msgs
   nav_msgs
-  mrs_msgs
+  rbl_msgs
   ouster_sensor_msgs
   filter_reflective_uavs
   std_srvs

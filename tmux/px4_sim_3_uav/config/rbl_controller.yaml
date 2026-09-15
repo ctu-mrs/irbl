@@ -4,7 +4,7 @@
     group_odoms:
       enable: true
       add_to_pcl: true
-      size: 1
+      size: 2
 
     odometry_topic: odometry
 

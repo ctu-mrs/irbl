@@ -1,0 +1,5 @@
+# Local replacement for mrs_msgs/Float64Srv.
+float64 value
+---
+bool success
+string message

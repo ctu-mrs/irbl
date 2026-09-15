@@ -12,7 +12,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(px4_ros_com REQUIRED)
-find_package(mrs_msgs REQUIRED)
+find_package(rbl_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -33,7 +33,7 @@ target_include_directories(px4_bridge_node PRIVATE ${EIGEN3_INCLUDE_DIR})
 ament_target_dependencies(px4_bridge_node
   rclcpp
   px4_msgs
-  mrs_msgs
+  rbl_msgs
   nav_msgs
   geometry_msgs
   std_srvs

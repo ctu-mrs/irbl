@@ -162,9 +162,9 @@ bool RBLController::inputsHealthy(const Eigen::Vector3d&                        
   return healthy;
 }
 
-std::optional<mrs_msgs::msg::Reference> RBLController::getNextRef()  // //{
+std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 {
-  mrs_msgs::msg::Reference p_ref;
+  rbl_msgs::msg::Reference p_ref;
 
   /* if (!inputsHealthy(agent_pos_, agent_vel_, group_states_, cloud_, goal_, altitude_, rpy_)) { */
   /*   std::cout << "[RBLController]: Inputs are not ok. Cannot return next reference" << std::endl; */
@@ -1520,7 +1520,7 @@ Eigen::Vector3d RBLController::determineWaypoint(const std::vector<Eigen::Vector
   // return next_point;
 }  // //}
 
-void RBLController::determineNextRef(mrs_msgs::msg::Reference&                p_ref,  // //{
+void RBLController::determineNextRef(rbl_msgs::msg::Reference&                p_ref,  // //{
                                      const Eigen::Vector3d&              agent_pos,
                                      const Eigen::Vector3d&              waypoint,
                                      const Eigen::Vector3d&              goal,
@@ -1579,10 +1579,10 @@ void RBLController::determineNextRef(mrs_msgs::msg::Reference&                p_
   }
 }  // //}
 
-mrs_msgs::msg::Reference RBLController::pRefAgent(const Eigen::Vector3d& agent_pos,
+rbl_msgs::msg::Reference RBLController::pRefAgent(const Eigen::Vector3d& agent_pos,
                                              const double           yaw)  // //{
 {
-  mrs_msgs::msg::Reference p_ref;
+  rbl_msgs::msg::Reference p_ref;
   p_ref.position.x = agent_pos.x();
   p_ref.position.y = agent_pos.y();
   p_ref.position.z = agent_pos.z();

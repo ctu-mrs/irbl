@@ -1,8 +1,7 @@
-// Bridges the irbl rbl_controller_node to native PX4 offboard control (uXRCE-DDS / px4_msgs),
-// replacing the MRS control_manager / hw_api chain.
+// Bridges the irbl rbl_controller_node to native PX4 offboard control (uXRCE-DDS / px4_msgs)
 //
 //   PX4 vehicle_odometry (NED/FRD) --> nav_msgs/Odometry (ENU/FLU)  --> rbl_controller "~/odom_in"
-//   rbl_controller "~/ref_out" (mrs_msgs/ReferenceStamped, ENU)     --> PX4 trajectory_setpoint (NED)
+//   rbl_controller "~/ref_out" (rbl_msgs/ReferenceStamped, ENU)     --> PX4 trajectory_setpoint (NED)
 //
 // Streams OffboardControlMode + TrajectorySetpoint continuously (PX4 requires this before and
 // during OFFBOARD mode) and, after a short warm-up, auto-arms and switches PX4 into OFFBOARD mode --
@@ -23,7 +22,7 @@
 #include <px4_ros_com/frame_transforms.h>
 
 #include <nav_msgs/msg/odometry.hpp>
-#include <mrs_msgs/msg/reference_stamped.hpp>
+#include <rbl_msgs/msg/reference_stamped.hpp>
 
 #include <Eigen/Geometry>
 
@@ -81,7 +80,7 @@ public:
         fmu_prefix + "/fmu/out/vehicle_odometry", px4_qos,
         std::bind(&Px4BridgeNode::odomCallback, this, std::placeholders::_1));
 
-    reference_sub_ = create_subscription<mrs_msgs::msg::ReferenceStamped>(
+    reference_sub_ = create_subscription<rbl_msgs::msg::ReferenceStamped>(
         "reference", rclcpp::QoS(1), std::bind(&Px4BridgeNode::referenceCallback, this, std::placeholders::_1));
 
     timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
@@ -142,7 +141,7 @@ private:
 
   // | ------------------------- ROS -> PX4 ------------------------ |
 
-  void referenceCallback(const mrs_msgs::msg::ReferenceStamped::SharedPtr msg)
+  void referenceCallback(const rbl_msgs::msg::ReferenceStamped::SharedPtr msg)
   {
     // Reference is expressed in the shared control_frame; PX4 needs it back in this vehicle's
     // own local (spawn-relative) frame, so undo the offset applied in odomCallback().
@@ -262,7 +261,7 @@ private:
   rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr       vehicle_command_pub_;
 
   rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr   vehicle_odometry_sub_;
-  rclcpp::Subscription<mrs_msgs::msg::ReferenceStamped>::SharedPtr  reference_sub_;
+  rclcpp::Subscription<rbl_msgs::msg::ReferenceStamped>::SharedPtr  reference_sub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 };

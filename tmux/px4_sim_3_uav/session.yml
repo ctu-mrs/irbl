@@ -1,11 +1,11 @@
 ---
-# PX4-Autopilot SITL simulation of the irbl stack, two UAVs sharing one gz world, no MRS
-# system/library involved. Both vehicles plan/avoid each other in the same control_frame
+# PX4-Autopilot SITL simulation of the irbl stack, three UAVs sharing one gz world, no MRS
+# system/library involved. All three vehicles plan/avoid each other in the same control_frame
 # ("uav1/world_origin"); rbl_px4_bridge's home_offset_{x,y,z} params correct each vehicle's own
 # EKF-local odometry back into that shared frame using its PX4_GZ_MODEL_POSE spawn offset.
 root: ./
-name: px4_simulation_2uav
-socket_name: px4sim2
+name: px4_simulation_3uav
+socket_name: px4sim3
 attach: false
 startup_window: activation
 pre_window:
@@ -14,8 +14,9 @@ pre_window:
   - export MAP_LENGTH=28.0; export MAP_WIDTH=25.0; export MAP_HEIGHT=10.0; export
     MAP_OBS_NUM=20; export MAP_CIRCLE_NUM=0
   - export UAV2_SPAWN_X=4.0; export UAV2_SPAWN_Y=0.0; export UAV2_SPAWN_Z=0.0
+  - export UAV3_SPAWN_X=2.0; export UAV3_SPAWN_Y=4.0; export UAV3_SPAWN_Z=0.0
   - export LAZYPX4_BIN=${LAZYPX4_BIN:-$HOME/git/lazypx4/dist/lazypx4}
-  - export UAV1_LAZYPX4_PORT=14560; export UAV2_LAZYPX4_PORT=14561
+  - export UAV1_LAZYPX4_PORT=14560; export UAV2_LAZYPX4_PORT=14561; export UAV3_LAZYPX4_PORT=14562
   - source /opt/ros/jazzy/setup.zsh
   - source ../../../../install/setup.zsh
   - export ATUIN_FILTER_MODE=session
@@ -57,6 +58,13 @@ windows:
           PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500
           PX4_GZ_MODEL_POSE="$UAV2_SPAWN_X,$UAV2_SPAWN_Y,$UAV2_SPAWN_Z,0,0,0"
           ./build/px4_sitl_default/bin/px4 -i 1
+        # Pane 2 (instance 2): same as pane 1, just joining the same already-running world at its
+        # own offset.
+        - cd $PX4_DIR && until [ -x ./build/px4_sitl_default/bin/px4 ]; do sleep 1; done;
+          until gz topic -l 2>/dev/null | grep -q '^/world/.*/clock'; do sleep 1; done;
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500
+          PX4_GZ_MODEL_POSE="$UAV3_SPAWN_X,$UAV3_SPAWN_Y,$UAV3_SPAWN_Z,0,0,0"
+          ./build/px4_sitl_default/bin/px4 -i 2
   - px4_healthcheck_fix:
       layout: tiled
       panes:
@@ -64,14 +72,16 @@ windows:
         # send-keys without a pane index would otherwise only ever hit whichever pane is active.
         - ./fix_arming_healthcheck.sh px4_sitl.0
         - ./fix_arming_healthcheck.sh px4_sitl.1
+        - ./fix_arming_healthcheck.sh px4_sitl.2
   - lazypx4_link:
       layout: tiled
       panes:
         # A dedicated full-telemetry MAVLink link per vehicle, straight to its own lazypx4 pane
-        # (below) -- separate from PX4's own default GCS link so the two vehicles' lazypx4 panes
+        # (below) -- separate from PX4's own default GCS link so the three vehicles' lazypx4 panes
         # don't end up seeing each other's traffic on one shared port. See start_lazypx4_link.sh.
         - ./start_lazypx4_link.sh px4_sitl.0 19560 $UAV1_LAZYPX4_PORT
         - ./start_lazypx4_link.sh px4_sitl.1 19561 $UAV2_LAZYPX4_PORT
+        - ./start_lazypx4_link.sh px4_sitl.2 19562 $UAV3_LAZYPX4_PORT
   - lazypx4:
       layout: tiled
       panes:
@@ -79,6 +89,7 @@ windows:
         # start_lazypx4_link.sh above; it'll show "no connection" until PX4's stream arrives.
         - $LAZYPX4_BIN --port $UAV1_LAZYPX4_PORT --lidar-topic /uav1/rbl_controller/cloud
         - $LAZYPX4_BIN --port $UAV2_LAZYPX4_PORT --lidar-topic /uav2/rbl_controller/cloud
+        - $LAZYPX4_BIN --port $UAV3_LAZYPX4_PORT --lidar-topic /uav3/rbl_controller/cloud
   - px4_bridge:
       layout: tiled
       panes:
@@ -89,13 +100,17 @@ windows:
           -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
           -p takeoff_altitude:=2.0 -p auto_arm:=true -p px4_ns:=px4_1 -p target_system:=2
           -p home_offset_x:=$UAV2_SPAWN_X -p home_offset_y:=$UAV2_SPAWN_Y -p home_offset_z:=$UAV2_SPAWN_Z
+        - export UAV_NAME=uav3; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p px4_ns:=px4_2 -p target_system:=3
+          -p home_offset_x:=$UAV3_SPAWN_X -p home_offset_y:=$UAV3_SPAWN_Y -p home_offset_z:=$UAV3_SPAWN_Z
   - group_state_relay:
       layout: tiled
       panes:
-        # Feeds each UAV the other's odometry (replaces MRS multirotor_simulator/uav_poses) so
+        # Feeds each UAV the other two's odometry (replaces MRS multirotor_simulator/uav_poses) so
         # rbl_controller_node's group_odoms collision-avoidance has something to avoid.
         - ros2 run rbl_px4_bridge group_state_relay_node --ros-args
-          -p uav_names:="[uav1, uav2]" -p control_frame:=uav1/world_origin
+          -p uav_names:="[uav1, uav2, uav3]" -p control_frame:=uav1/world_origin
   - map_generator:
       layout: tiled
       panes:
@@ -112,21 +127,26 @@ windows:
         - export UAV_NAME=uav2; ros2 launch rbl_controller_node rbl_controller.launch.py
           uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
           pcl_topic:=/map_generator/global_cloud control_frame:=uav1/world_origin
+        - export UAV_NAME=uav3; ros2 launch rbl_controller_node rbl_controller.launch.py
+          uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
+          pcl_topic:=/map_generator/global_cloud control_frame:=uav1/world_origin
   - rviz:
       layout: tiled
       panes:
         - rviz2 -d ./px4_sim.rviz
   - activation:
       layout: tiled
-      # synchronize: after turns on tmux's synchronize-panes once these two per-pane setup lines
+      # synchronize: after turns on tmux's synchronize-panes once these three per-pane setup lines
       # have each run (so each pane keeps its own UAV_NAME/GOAL_*) -- after that, anything typed in
-      # one pane (e.g. running ./activation.sh) is sent to both panes at the same keystroke, so
-      # both UAVs' goto+activation calls fire together instead of one after another.
+      # one pane (e.g. running ./activation.sh) is sent to all three panes at the same keystroke, so
+      # all three UAVs' goto+activation calls fire together instead of running one after another.
       synchronize: after
       panes:
-        - export UAV_NAME=uav1; export GOAL_X=10.0; export GOAL_Y=0.0; export GOAL_Z=2.5; export GOAL_YAW=0.0;
-          echo "Wait for both px4_sitl panes to finish booting and both px4_bridge panes to print
-          'Arming', then run ./activation.sh -- typed once, it runs in both panes at once";
+        - export UAV_NAME=uav1; export GOAL_X=20.0; export GOAL_Y=0.0; export GOAL_Z=2.5; export GOAL_YAW=0.0;
+          echo "Wait for all three px4_sitl panes to finish booting and all three px4_bridge panes
+          to print 'Arming', then run ./activation.sh -- typed once, it runs in all three panes at
+          once"; history -s ./activation.sh
+        - export UAV_NAME=uav2; export GOAL_X=20.0; export GOAL_Y=4.0; export GOAL_Z=2.5; export GOAL_YAW=0.0;
           history -s ./activation.sh
-        - export UAV_NAME=uav2; export GOAL_X=10.0; export GOAL_Y=4.0; export GOAL_Z=2.5; export GOAL_YAW=0.0;
+        - export UAV_NAME=uav3; export GOAL_X=20.0; export GOAL_Y=8.0; export GOAL_Z=2.5; export GOAL_YAW=0.0;
           history -s ./activation.sh

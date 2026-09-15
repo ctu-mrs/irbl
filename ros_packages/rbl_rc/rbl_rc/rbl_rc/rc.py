@@ -5,7 +5,11 @@ from rclpy.node import Node
 from rclpy.time import Time
 
 from mavros_msgs.msg import State, RCIn
-from mrs_msgs.srv import Vec4, Float64Srv, String
+# Vec4/Float64Srv are our own rbl_controller services (local rbl_msgs types). String still comes
+# from mrs_msgs because it targets the real MRS estimation_manager node's change_estimator
+# service on hardware -- not something this stack implements itself.
+from rbl_msgs.srv import Vec4, Float64Srv
+from mrs_msgs.srv import String
 from nav_msgs.msg import Odometry
 
 

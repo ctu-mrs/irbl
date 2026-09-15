@@ -7,6 +7,7 @@
 // already subscribes to on "~/group_states_in") to every UAV containing all *other* UAVs' state.
 
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -22,7 +23,17 @@ class GroupStateRelayNode : public rclcpp::Node
 public:
   GroupStateRelayNode() : Node("group_state_relay")
   {
-    uav_names_    = declare_parameter<std::vector<std::string>>("uav_names", { "uav1", "uav2" });
+    // No default: the group size isn't something this node should guess at (2 UAVs is one
+    // arbitrary sim configuration among many), so an unset uav_names is a launch misconfiguration
+    // that should fail loudly rather than silently relay state for the wrong set of vehicles.
+    uav_names_ = declare_parameter<std::vector<std::string>>("uav_names", std::vector<std::string>{});
+    if (uav_names_.empty()) {
+      RCLCPP_FATAL(get_logger(),
+                    "uav_names parameter is required (the full list of UAVs in the group, e.g. "
+                    "['uav1', 'uav2', 'uav3']) -- there is no sensible default group size");
+      throw std::runtime_error("group_state_relay: uav_names parameter is required and was empty");
+    }
+
     control_frame_ = declare_parameter<std::string>("control_frame", "uav1/world_origin");
     publish_rate_ = declare_parameter<double>("publish_rate", 20.0);
 
