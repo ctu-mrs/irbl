@@ -30,6 +30,7 @@ def generate_launch_description():
     pcl_topic = LaunchConfiguration("pcl_topic")  # 👈 NEW
     debug = LaunchConfiguration("debug")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    control_frame = LaunchConfiguration("control_frame")
 
     # -------------------------------------------------
     # Launch description + arguments
@@ -67,6 +68,15 @@ def generate_launch_description():
                     "USE_SIM_TIME", default_value="false"
                 ),
             ),
+            # Frame all UAVs plan and avoid each other in. Left empty (the default), it is
+            # derived per-UAV as "<uav_name>/world_origin" (single-UAV behavior). For a multi-UAV
+            # simulation, every UAV must share the *same* world frame (matching the one obstacle
+            # map/frame the map_generator node publishes in), so pass this explicitly there.
+            DeclareLaunchArgument(
+                "control_frame",
+                default_value="",
+                description="Shared world frame; defaults to '<uav_name>/world_origin' if empty",
+            ),
         ]
     )
 
@@ -74,6 +84,12 @@ def generate_launch_description():
         condition=PythonExpression(['"', debug, '" == "true"']),
         if_value="debug_roslaunch " + os.ttyname(sys.stdout.fileno()),
         else_value="",
+    )
+
+    control_frame = IfElseSubstitution(
+        condition=PythonExpression(['"', control_frame, '" == ""']),
+        if_value=[uav_name, "/world_origin"],
+        else_value=control_frame,
     )
 
     # -------------------------------------------------
@@ -88,7 +104,7 @@ def generate_launch_description():
             custom_config,
             {"use_sim_time": use_sim_time},
             {"uav_name": uav_name},
-            {"control_frame": [uav_name, "/world_origin"]},
+            {"control_frame": control_frame},
         ],
         remappings=[
             ("~/odom_in", "odometry"),

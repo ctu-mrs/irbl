@@ -23,6 +23,7 @@
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>std_srvs</depend>
+  <depend>filter_reflective_uavs</depend>
   <depend>eigen3_cmake_module</depend>
   <depend>eigen</depend>
 

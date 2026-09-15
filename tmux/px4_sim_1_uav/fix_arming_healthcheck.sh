@@ -1,13 +1,12 @@
 #!/bin/bash
-# This machine's PX4-Autopilot checkout (and its SITL "instance 0" rootfs/eeprom) is shared
-# with other projects. If one of them left NAV_DLL_ACT non-zero, PX4's commander refuses to
-# arm without a GCS/MAVLink heartbeat -- which we don't have here, since this stack talks to
-# PX4 purely over uXRCE-DDS. This resets NAV_DLL_ACT to PX4's own factory default (0) for the
-# running SITL instance so px4_bridge_node's auto-arm sequence can succeed.
+# PX4's own gz_x500 airframe startup script sets `NAV_DLL_ACT` to a non-zero value by default
+# (see ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500), which makes the commander refuse
+# to arm without a GCS/MAVLink heartbeat. We don't have one here since this stack talks to PX4
+# purely over uXRCE-DDS, so this resets NAV_DLL_ACT to 0 for the running SITL instance so
+# px4_bridge_node's auto-arm sequence can succeed.
 #
-# This is a runtime `param set`, not a permanent edit of any file in this repository. Note
-# that PX4 autosaves parameter changes, so this can persist into the shared eeprom -- if
-# another project on this machine relies on NAV_DLL_ACT being non-zero, re-set it there.
+# This is a runtime `param set` against the running instance, not a permanent edit of any file
+# in this repository.
 
 export TMUX_SOCKET_NAME=px4sim
 export TMUX_SESSION_NAME=px4_simulation

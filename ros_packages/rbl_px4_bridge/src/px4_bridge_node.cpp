@@ -43,19 +43,43 @@ public:
     publish_rate_     = declare_parameter<double>("publish_rate", 20.0);
     auto_arm_         = declare_parameter<bool>("auto_arm", true);
     arm_after_cycles_ = declare_parameter<int>("arm_after_cycles", 20);
+    // PX4 multi-instance SITL namespaces every /fmu/... topic as /<px4_ns>/fmu/... for every
+    // instance except instance 0 (whose default namespace is empty). Set this to match whatever
+    // PX4_UXRCE_DDS_NS (or the "px4_<instance>" default) that vehicle's PX4 was started with.
+    px4_ns_ = declare_parameter<std::string>("px4_ns", "");
+    // rcS auto-sets each instance's own MAV_SYS_ID to px4_instance+1 (1 for instance 0, 2 for
+    // instance 1, ...). PX4's commander drops any vehicle_command whose target_system doesn't
+    // match its own MAV_SYS_ID -- topic namespacing alone does *not* protect against this, so for
+    // any instance other than 0 this must be set to that instance's MAV_SYS_ID, or arming/mode
+    // commands are silently ignored (the vehicle never actually arms even though this node logs
+    // that it sent the command).
+    target_system_ = declare_parameter<int>("target_system", 1);
+    // Every PX4 instance's own vehicle_odometry is relative to *its own* EKF local origin, i.e.
+    // its spawn point (PX4_GZ_MODEL_POSE), not to the shared control_frame's origin. For a
+    // multi-UAV sim where every vehicle publishes into the same control_frame (so they can see
+    // and avoid each other), this vehicle's spawn offset -- the same x/y/z given to
+    // PX4_GZ_MODEL_POSE at launch -- must be added back in, or every vehicle appears to be
+    // sitting on top of the others. Left at (0,0,0) for a single-UAV sim / this vehicle's origin.
+    home_offset_.x() = declare_parameter<double>("home_offset_x", 0.0);
+    home_offset_.y() = declare_parameter<double>("home_offset_y", 0.0);
+    home_offset_.z() = declare_parameter<double>("home_offset_z", 0.0);
 
     const rclcpp::QoS px4_qos = rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile();
 
+    const std::string fmu_prefix = px4_ns_.empty() ? "" : ("/" + px4_ns_);
+
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("odometry", rclcpp::QoS(5));
 
-    offboard_control_mode_pub_ =
-        create_publisher<px4_msgs::msg::OffboardControlMode>("/fmu/in/offboard_control_mode", px4_qos);
-    trajectory_setpoint_pub_ =
-        create_publisher<px4_msgs::msg::TrajectorySetpoint>("/fmu/in/trajectory_setpoint", px4_qos);
-    vehicle_command_pub_ = create_publisher<px4_msgs::msg::VehicleCommand>("/fmu/in/vehicle_command", px4_qos);
+    offboard_control_mode_pub_ = create_publisher<px4_msgs::msg::OffboardControlMode>(
+        fmu_prefix + "/fmu/in/offboard_control_mode", px4_qos);
+    trajectory_setpoint_pub_ = create_publisher<px4_msgs::msg::TrajectorySetpoint>(
+        fmu_prefix + "/fmu/in/trajectory_setpoint", px4_qos);
+    vehicle_command_pub_ =
+        create_publisher<px4_msgs::msg::VehicleCommand>(fmu_prefix + "/fmu/in/vehicle_command", px4_qos);
 
     vehicle_odometry_sub_ = create_subscription<px4_msgs::msg::VehicleOdometry>(
-        "/fmu/out/vehicle_odometry", px4_qos, std::bind(&Px4BridgeNode::odomCallback, this, std::placeholders::_1));
+        fmu_prefix + "/fmu/out/vehicle_odometry", px4_qos,
+        std::bind(&Px4BridgeNode::odomCallback, this, std::placeholders::_1));
 
     reference_sub_ = create_subscription<mrs_msgs::msg::ReferenceStamped>(
         "reference", rclcpp::QoS(1), std::bind(&Px4BridgeNode::referenceCallback, this, std::placeholders::_1));
@@ -64,8 +88,10 @@ public:
                                 std::bind(&Px4BridgeNode::timerCallback, this));
 
     RCLCPP_INFO(get_logger(),
-                "px4_bridge started: control_frame='%s', takeoff_altitude=%.2fm, auto_arm=%s",
-                control_frame_.c_str(), takeoff_altitude_, auto_arm_ ? "true" : "false");
+                "px4_bridge started: control_frame='%s', takeoff_altitude=%.2fm, auto_arm=%s, px4_ns='%s', "
+                "target_system=%d",
+                control_frame_.c_str(), takeoff_altitude_, auto_arm_ ? "true" : "false", px4_ns_.c_str(),
+                target_system_);
   }
 
 private:
@@ -82,14 +108,16 @@ private:
     const Eigen::Vector3d    vel_enu = px4_ros_com::frame_transforms::ned_to_enu_local_frame(vel_ned);
     const Eigen::Quaterniond q_enu   = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
 
+    const Eigen::Vector3d pos_enu_shared = pos_enu + home_offset_;
+
     nav_msgs::msg::Odometry odom;
     odom.header.stamp    = now();
     odom.header.frame_id = control_frame_;
     odom.child_frame_id  = uav_name_ + "/fcu";
 
-    odom.pose.pose.position.x = pos_enu.x();
-    odom.pose.pose.position.y = pos_enu.y();
-    odom.pose.pose.position.z = pos_enu.z();
+    odom.pose.pose.position.x = pos_enu_shared.x();
+    odom.pose.pose.position.y = pos_enu_shared.y();
+    odom.pose.pose.position.z = pos_enu_shared.z();
 
     odom.pose.pose.orientation.w = q_enu.w();
     odom.pose.pose.orientation.x = q_enu.x();
@@ -116,8 +144,11 @@ private:
 
   void referenceCallback(const mrs_msgs::msg::ReferenceStamped::SharedPtr msg)
   {
+    // Reference is expressed in the shared control_frame; PX4 needs it back in this vehicle's
+    // own local (spawn-relative) frame, so undo the offset applied in odomCallback().
     const Eigen::Vector3d pos_enu(msg->reference.position.x, msg->reference.position.y, msg->reference.position.z);
-    const Eigen::Vector3d pos_ned = px4_ros_com::frame_transforms::enu_to_ned_local_frame(pos_enu);
+    const Eigen::Vector3d pos_enu_local = pos_enu - home_offset_;
+    const Eigen::Vector3d pos_ned       = px4_ros_com::frame_transforms::enu_to_ned_local_frame(pos_enu_local);
 
     const Eigen::Quaterniond q_enu(Eigen::AngleAxisd(msg->reference.heading, Eigen::Vector3d::UnitZ()));
     const Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::ros_to_px4_orientation(q_enu);
@@ -195,7 +226,7 @@ private:
     msg.param1            = param1;
     msg.param2            = param2;
     msg.command           = command;
-    msg.target_system     = 1;
+    msg.target_system     = static_cast<uint8_t>(target_system_);
     msg.target_component  = 1;
     msg.source_system     = 1;
     msg.source_component  = 1;
@@ -205,12 +236,15 @@ private:
   }
 
   // | -------------------------- params -------------------------- |
-  std::string uav_name_;
-  std::string control_frame_;
-  double      takeoff_altitude_;
-  double      publish_rate_;
-  bool        auto_arm_;
-  int         arm_after_cycles_;
+  std::string     uav_name_;
+  std::string     control_frame_;
+  std::string     px4_ns_;
+  int             target_system_;
+  Eigen::Vector3d home_offset_ = Eigen::Vector3d::Zero();
+  double          takeoff_altitude_;
+  double          publish_rate_;
+  bool            auto_arm_;
+  int             arm_after_cycles_;
 
   // | -------------------------- state ----------------------------- |
   bool            have_odom_          = false;
