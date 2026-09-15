@@ -7,6 +7,7 @@
 // during OFFBOARD mode) and, after a short warm-up, auto-arms and switches PX4 into OFFBOARD mode --
 // this mirrors PX4's official ROS 2 offboard_control.cpp example.
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <memory>
@@ -42,6 +43,15 @@ public:
     control_frame_    = declare_parameter<std::string>("control_frame", uav_name_ + "/world_origin");
     takeoff_altitude_ = declare_parameter<double>("takeoff_altitude", 2.0);
     publish_rate_     = declare_parameter<double>("publish_rate", 20.0);
+    // PX4's OFFBOARD TrajectorySetpoint has no internal smoothing (unlike Auto/mission waypoints,
+    // it's fed straight into the position PID -- see MulticopterPositionControl.cpp), so a
+    // discontinuous jump in the reference this node receives (a replan, a new goal) would
+    // otherwise become an equally discontinuous jump in what PX4 tries to instantly chase. Instead
+    // of forwarding rbl_controller's reference directly, this caps how fast the setpoint actually
+    // sent to PX4 is allowed to move towards it -- smooth motion passes through close to 1:1 (as
+    // long as its own implied speed stays under this), while a jump turns into a straight-line
+    // approach at this speed instead of a teleport.
+    max_setpoint_speed_ = declare_parameter<double>("max_setpoint_speed", 3.0);
     auto_arm_         = declare_parameter<bool>("auto_arm", true);
     arm_after_cycles_ = declare_parameter<int>("arm_after_cycles", 20);
     // PX4 multi-instance SITL namespaces every /fmu/... topic as /<px4_ns>/fmu/... for every
@@ -219,9 +229,29 @@ private:
     px4_msgs::msg::TrajectorySetpoint msg{};
 
     if (have_reference_) {
-      msg.position[0] = static_cast<float>(latest_setpoint_ned_.x());
-      msg.position[1] = static_cast<float>(latest_setpoint_ned_.y());
-      msg.position[2] = static_cast<float>(latest_setpoint_ned_.z());
+      const rclcpp::Time stamp = now();
+      if (!have_commanded_position_) {
+        // First reference ever received: nothing to ramp from yet, jump straight to it.
+        commanded_position_ned_ = latest_setpoint_ned_;
+        have_commanded_position_ = true;
+      }
+      else {
+        const double dt = (stamp - prev_command_stamp_).seconds();
+        const Eigen::Vector3d delta    = latest_setpoint_ned_ - commanded_position_ned_;
+        const double           dist    = delta.norm();
+        const double           max_step = max_setpoint_speed_ * std::max(dt, 0.0);
+        if (dist > max_step && dist > 1e-6) {
+          commanded_position_ned_ += delta * (max_step / dist);
+        }
+        else {
+          commanded_position_ned_ = latest_setpoint_ned_;
+        }
+      }
+      prev_command_stamp_ = stamp;
+
+      msg.position[0] = static_cast<float>(commanded_position_ned_.x());
+      msg.position[1] = static_cast<float>(commanded_position_ned_.y());
+      msg.position[2] = static_cast<float>(commanded_position_ned_.z());
       msg.yaw         = static_cast<float>(latest_yaw_ned_);
     }
     else {
@@ -260,6 +290,7 @@ private:
   Eigen::Vector3d home_offset_ = Eigen::Vector3d::Zero();
   double          takeoff_altitude_;
   double          publish_rate_;
+  double          max_setpoint_speed_;
   bool            auto_arm_;
   int             arm_after_cycles_;
 
@@ -271,6 +302,12 @@ private:
   Eigen::Vector3d last_position_enu_  = Eigen::Vector3d::Zero();
   Eigen::Vector3d latest_setpoint_ned_ = Eigen::Vector3d::Zero();
   double          latest_yaw_ned_      = 0.0;
+  // The setpoint actually sent to PX4 -- rate-limited towards latest_setpoint_ned_, see
+  // publishTrajectorySetpoint(). Deliberately separate from latest_setpoint_ned_ (the raw,
+  // possibly-discontinuous reference as received).
+  Eigen::Vector3d commanded_position_ned_   = Eigen::Vector3d::Zero();
+  bool            have_commanded_position_ = false;
+  rclcpp::Time    prev_command_stamp_;
 
   // | ------------------------ ROS interfaces ------------------------ |
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr             odom_pub_;

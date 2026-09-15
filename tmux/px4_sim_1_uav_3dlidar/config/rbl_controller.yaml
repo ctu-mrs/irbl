@@ -16,12 +16,12 @@
       limited_fov: true
       only_2d: false
       ciri: true
-      lidar_tilt: 90.0 # [deg]
-      lidar_fov: 180.0 #[deg]
-      step_size: 0.2
+      lidar_tilt: 0.0 # [deg]
+      lidar_fov: 59.0 #[deg]
+      step_size: 0.08
       boundary_threshold: 0.3
-      z_min: 0.0
-      z_max: 4.0
+      z_min: 1.0
+      z_max: 5.0
       z_ref: 1.0
       d1: 1.0
       d2: 1.0
@@ -32,11 +32,11 @@
       d7: 1.0
       radius: 5.0 # max planning horizon
       betaD: 0.1
-      beta_min: 0.01
+      beta_min: 0.05
       dt: 0.1
-      encumbrance: 0.386
+      encumbrance: 0.4
       use_z_rule: false
-      cwvd_obs: 0.5
+      cwvd_obs: 0.99
       cwvd_rob: 0.5
       use_map: true
       use_garmin_alt: false
@@ -51,4 +51,4 @@
       add_estimates_as_voxels: true
 
     replanner:
-      inflation_bonus: 0.2
+      inflation_bonus: 0.3

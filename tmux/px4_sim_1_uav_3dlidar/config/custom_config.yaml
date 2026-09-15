@@ -33,7 +33,7 @@ estimation:
                            # (~2.5 m) never need it further out
 
 velocity_limits:
-  MPC_XY_VEL_MAX: 3.5      # [m/s] maximum horizontal velocity in Auto/Offboard modes
+  MPC_XY_VEL_MAX: 5      # [m/s] maximum horizontal velocity in Auto/Offboard modes
   MPC_Z_VEL_MAX_UP: 3.0    # [m/s] maximum ascent velocity
   MPC_Z_VEL_MAX_DN: 1.5    # [m/s] maximum descent velocity
   MPC_XY_CRUISE: 3.0       # [m/s] default horizontal cruise speed in Auto mode
