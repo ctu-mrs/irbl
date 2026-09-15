@@ -101,6 +101,12 @@ struct ReplannerParams {
   // keeps the direction from flip-flopping between replans instead. Adjustable at runtime via
   // setDirectionConsistencyWeight().
   double                                                    direction_consistency_weight = 5.0;
+  // [s] If the agent hasn't moved more than stuck_distance over this long, shouldReplan() forces a
+  // fresh replan (a different route than the one it's apparently stuck on), instead of waiting for
+  // the path to reach stuck_check_percentage or become blocked.
+  double                                                    stuck_timeout         = 3.0;
+  // [m] Movement below this over stuck_timeout counts as "no progress" for the stuck check above.
+  double                                                    stuck_distance        = 0.3;
 };
 
 class RBLReplanner {
@@ -154,6 +160,12 @@ private:
   int                                                        z_min_idx_ = 0;
   int                                                        z_max_idx_ = 0;
   Eigen::Vector3d                                           agent_pos_;
+  // Progress-tracking state for the "stuck" check in shouldReplan() -- see isStuck(). Reset to the
+  // agent's current position/time whenever it's moved more than stuck_distance_ since the last
+  // reset, so this only fires on a genuine, sustained lack of progress.
+  Eigen::Vector3d                                           stuck_check_pos_ = Eigen::Vector3d::Zero();
+  std::chrono::high_resolution_clock::time_point            stuck_check_time_;
+  bool                                                       have_stuck_check_ = false;
   Eigen::Vector3d                                           goal_;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>           cloud_;
   std::vector<Eigen::Vector3d>                              path_;
@@ -174,6 +186,11 @@ private:
   bool shouldReplan(const std::vector<Eigen::Vector3d>& path, Eigen::Vector3d& agent_pos, std::vector<std::tuple<int, int, int>> _path, std::optional<VoxelGrid>& grid);
   bool percentageCompleted(const double percentage, const std::vector<Eigen::Vector3d>& path, Eigen::Vector3d& agent_pos);
   bool pathBlocked(std::vector<std::tuple<int, int, int>> _path, std::optional<VoxelGrid>& grid);
+  // True if the agent has made less than stuck_distance_ of progress over the last stuck_timeout_
+  // seconds -- meant to catch cases where the path itself looks fine (not blocked, not near
+  // completion) but something downstream of the plan (local reactive avoidance, an oscillation) is
+  // keeping the agent from actually making headway along it, so a different route is worth trying.
+  bool isStuck(const Eigen::Vector3d& agent_pos);
 
   void initializationPlan();
   double roundToNextMultiple(double value, double multiple);

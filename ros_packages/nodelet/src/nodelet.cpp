@@ -324,6 +324,7 @@ namespace rbl_controller
     rbl_params_.add_estimates_as_voxels =
         getParam<bool>(node_.get(), "rbl_controller.add_estimates_as_voxels", true);
     rbl_params_.inflation_bonus = getParam<double>(node_.get(), "replanner.inflation_bonus", 0.2);
+    rbl_params_.replanner_freq  = getParam<double>(node_.get(), "replanner.replanner_freq", 0.5);
 
     {
       LocalStaticMap::Params static_map_params;

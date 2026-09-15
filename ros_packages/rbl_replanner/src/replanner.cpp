@@ -205,15 +205,51 @@ bool RBLReplanner::shouldReplan(const std::vector<Eigen::Vector3d>& path,
     return true;
   }
 
-  // 50% completed? -> replan
+  // 30% completed? -> replan
   if (percentageCompleted(0.3, path, agent_pos)) {
-    std::cout << "[RBLReplanner]: Replanning, because completed 50 percent of the path. " << std::endl;
+    std::cout << "[RBLReplanner]: Replanning, because completed 30 percent of the path. " << std::endl;
     return true;
   }
 
   // path blocked? -> replan
   if (pathBlocked(_path, grid)) {
     std::cout << "[RBLReplanner]: Replanning, because path is blocked now. " << std::endl;
+    return true;
+  }
+
+  // stuck (no real progress for a while)? -> try a different route
+  if (isStuck(agent_pos)) {
+    std::cout << "[RBLReplanner]: Replanning, because the agent appears stuck. " << std::endl;
+    return true;
+  }
+
+  return false;
+}  // //}
+
+bool RBLReplanner::isStuck(const Eigen::Vector3d& agent_pos)  // //{
+{
+  const auto now = std::chrono::high_resolution_clock::now();
+
+  if (!have_stuck_check_) {
+    stuck_check_pos_  = agent_pos;
+    stuck_check_time_ = now;
+    have_stuck_check_ = true;
+    return false;
+  }
+
+  if ((agent_pos - stuck_check_pos_).norm() > params_.stuck_distance) {
+    // Real progress made -- reset the clock and baseline position.
+    stuck_check_pos_  = agent_pos;
+    stuck_check_time_ = now;
+    return false;
+  }
+
+  const std::chrono::duration<double> elapsed = now - stuck_check_time_;
+  if (elapsed.count() >= params_.stuck_timeout) {
+    // About to replan because of this -- reset so the *next* plan gets a fresh stuck_timeout_
+    // window instead of immediately re-triggering every subsequent call.
+    stuck_check_pos_  = agent_pos;
+    stuck_check_time_ = now;
     return true;
   }
 

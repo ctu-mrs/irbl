@@ -96,6 +96,10 @@ struct RBLParams {
   bool                                  ciri                          = false;
   bool                                  add_estimates_as_voxels       = true;
   double                                inflation_bonus               = 0.0;
+  // [Hz] How often the replanner is even considered for a fresh full replan (see
+  // RBLReplanner::replanTimer()) -- a periodic ceiling on top of the event-based triggers
+  // (30% of path completed, path blocked, agent stuck), not a guarantee it replans this often.
+  double                                replanner_freq                = 0.5;
     bool downsample_pcl = false;
 };
 
