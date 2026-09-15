@@ -1,0 +1,56 @@
+---
+# PX4-Autopilot SITL simulation of the irbl stack, single UAV, no MRS system/library involved.
+root: ./
+name: px4_simulation
+socket_name: px4sim
+attach: false
+startup_window: activation
+pre_window:
+  - export UAV_NAME=uav1
+  - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
+  - export HEADLESS=${HEADLESS:-0}
+  - export MAP_LENGTH=28.0; export MAP_WIDTH=25.0; export MAP_HEIGHT=10.0; export
+    MAP_OBS_NUM=20; export MAP_CIRCLE_NUM=0
+  - source /opt/ros/jazzy/setup.zsh
+  - source ../../../../install/setup.zsh
+windows:
+  - micro_xrce_agent:
+      layout: tiled
+      panes:
+        - MicroXRCEAgent udp4 -p 8888
+  - px4_sitl:
+      layout: tiled
+      panes:
+        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500
+  - px4_healthcheck_fix:
+      layout: tiled
+      panes:
+        - ./fix_arming_healthcheck.sh
+  - px4_bridge:
+      layout: tiled
+      panes:
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=$UAV_NAME/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true
+  - map_generator:
+      layout: tiled
+      panes:
+        - ros2 run map_generator random_forest --ros-args
+          -p map/x_size:=$MAP_LENGTH -p map/y_size:=$MAP_WIDTH -p map/z_size:=$MAP_HEIGHT
+          -p map/obs_num:=$MAP_OBS_NUM -p map/circle_num:=$MAP_CIRCLE_NUM
+          -r odometry:=/$UAV_NAME/odometry
+  - rbl_controller:
+      layout: tiled
+      panes:
+        - export UAV_NAME=$UAV_NAME; ros2 launch rbl_controller_node rbl_controller.launch.py
+          uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
+          pcl_topic:=/map_generator/global_cloud
+  - rviz:
+      layout: tiled
+      panes:
+        - rviz2 -d ./px4_sim.rviz
+  - activation:
+      layout: tiled
+      panes:
+        - echo "Wait for the px4_sitl pane to finish booting and the px4_bridge pane to print
+          'Arming', then run ./activation.sh"; history -s ./activation.sh

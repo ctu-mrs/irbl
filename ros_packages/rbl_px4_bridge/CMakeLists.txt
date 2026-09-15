@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.8)
+project(rbl_px4_bridge)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options("-Wall" "-Wextra" "-Wpedantic")
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(px4_msgs REQUIRED)
+find_package(px4_ros_com REQUIRED)
+find_package(mrs_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(Eigen3 REQUIRED)
+
+add_executable(px4_bridge_node src/px4_bridge_node.cpp)
+
+target_include_directories(px4_bridge_node PRIVATE ${EIGEN3_INCLUDE_DIR})
+
+ament_target_dependencies(px4_bridge_node
+  rclcpp
+  px4_msgs
+  mrs_msgs
+  nav_msgs
+  geometry_msgs
+  std_srvs
+)
+
+target_link_libraries(px4_bridge_node
+  px4_ros_com::frame_transforms
+)
+
+install(TARGETS px4_bridge_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+ament_package()

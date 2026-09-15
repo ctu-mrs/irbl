@@ -7,14 +7,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 1 == use rclcpp::Timer implementation
-# 0 == use MRS's thread timer implementation
-set(USE_ROS_TIMER 0)
-
-if(${USE_ROS_TIMER})
-  MESSAGE(WARNING "[example_waypoint_flier]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
-endif()
-
 # set the compile options to show code warnings
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options("-Wall" "-Wextra" "-Wpedantic")
@@ -33,16 +25,20 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(ouster_sensor_msgs REQUIRED)
+# filter_reflective_uavs's exported CMake target links mrs_lib; this package's own code does not
+# use mrs_lib at all, but mrs_lib still needs to be find_package()-d here to resolve that target.
+find_package(mrs_lib REQUIRED)
 find_package(filter_reflective_uavs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
-find_package(mrs_lib REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
-find_package(mrs_uav_testing REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(mrs_msgs REQUIRED)
@@ -66,7 +62,9 @@ ament_target_dependencies(
   ${RBL_CONTROLLER_NODE_TARGET}
   rclcpp
   rclcpp_components
-  mrs_lib
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
   octomap_msgs
   pcl_conversions
   geometry_msgs

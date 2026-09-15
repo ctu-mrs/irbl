@@ -2,23 +2,12 @@
 #include <filter_reflective_uavs/msg/pose_velocity_array.hpp>
 #include "rbl_controller_core/rbl_controller.h"
 
-// MRS LIB
-#include <mrs_lib/mutex.h>
-#include <mrs_lib/node.h>
-#include <mrs_lib/param_loader.h>
-#include <mrs_lib/publisher_handler.h>
-#include <mrs_lib/service_client_handler.h>
-#include <mrs_lib/service_server_handler.h>
-#include <mrs_lib/subscriber_handler.h>
-#include <mrs_lib/transformer.h>
-
-// MRS MSGs
+// MRS MSGs (message/service definitions only -- no MRS runtime/flight-stack dependency)
 #include <octomap_msgs/conversions.h>
 #include <mrs_msgs/msg/float64_stamped.hpp>
-#include <mrs_msgs/msg/pose_with_covariance_array_stamped.hpp>
 #include <mrs_msgs/msg/reference.hpp>
+#include <mrs_msgs/msg/reference_stamped.hpp>
 #include <mrs_msgs/srv/float64_srv.hpp>
-#include <mrs_msgs/srv/reference_stamped_srv.hpp>
 #include <mrs_msgs/srv/vec4.hpp>
 #include <mutex>
 #include <octomap_msgs/msg/octomap.hpp>
@@ -38,6 +27,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
+// TF2 (replaces mrs_lib::Transformer)
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2/exceptions.h>
+
 // OCTOMAP
 #include <octomap/OcTree.h>
 
@@ -54,17 +49,60 @@
 // Standard CPP libs
 #include <cmath>
 #include <string>
-
-#if USE_ROS_TIMER == 1
-typedef mrs_lib::ROSTimer TimerType;
-#else
-typedef mrs_lib::ThreadTimer TimerType;
-#endif
+#include <optional>
 
 namespace rbl_controller
 {
 
-  class WrapperRosRBL : public mrs_lib::Node
+  // | ------- minimal local replacements for mrs_lib helpers ------- |
+  // A tiny "new message available" subscriber wrapper, replacing mrs_lib::SubscriberHandler.
+  template <typename T>
+  class SimpleSub
+  {
+  public:
+    void subscribe(rclcpp::Node* node, const std::string& topic, const rclcpp::QoS& qos,
+                   const rclcpp::CallbackGroup::SharedPtr& group)
+    {
+      rclcpp::SubscriptionOptions opts;
+      opts.callback_group = group;
+      sub_ = node->create_subscription<T>(
+          topic, qos, [this](const typename T::SharedPtr msg) {
+            msg_     = msg;
+            has_new_ = true;
+          },
+          opts);
+    }
+
+    bool newMsg()
+    {
+      return has_new_;
+    }
+
+    typename T::SharedPtr getMsg()
+    {
+      has_new_ = false;
+      return msg_;
+    }
+
+  private:
+    typename rclcpp::Subscription<T>::SharedPtr sub_;
+    typename T::SharedPtr                       msg_;
+    bool                                         has_new_ = false;
+  };
+
+  // A tiny helper replacing mrs_lib::ParamLoader: declares (if not already declared) and reads a parameter.
+  template <typename T>
+  T getParam(rclcpp::Node* node, const std::string& name, const T& default_value)
+  {
+    if (!node->has_parameter(name)) {
+      node->declare_parameter<T>(name, default_value);
+    }
+    T value{};
+    node->get_parameter(name, value);
+    return value;
+  }
+
+  class WrapperRosRBL : public rclcpp::Node
   {
   public:
     WrapperRosRBL(rclcpp::NodeOptions options);
@@ -76,7 +114,6 @@ namespace rbl_controller
     rclcpp::Clock::SharedPtr clock_;
 
     rclcpp::CallbackGroup::SharedPtr cbkgrp_subs_;
-    rclcpp::CallbackGroup::SharedPtr cbkgrp_sc_;
     rclcpp::CallbackGroup::SharedPtr cbkgrp_ss_;
     rclcpp::CallbackGroup::SharedPtr cbkgrp_timers_;
 
@@ -103,48 +140,45 @@ namespace rbl_controller
 
     bool cbSrvActivateControl(const std::shared_ptr<std_srvs::srv::Trigger::Request>  req,
                               const std::shared_ptr<std_srvs::srv::Trigger::Response> res);
-    mrs_lib::ServiceServerHandler<std_srvs::srv::Trigger> srv_activate_control_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_activate_control_;
 
     bool cbSrvDeactivateControl(const std::shared_ptr<std_srvs::srv::Trigger::Request>  req,
                                 const std::shared_ptr<std_srvs::srv::Trigger::Response> res);
-    mrs_lib::ServiceServerHandler<std_srvs::srv::Trigger> srv_deactivate_control_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_deactivate_control_;
 
-    // bool cbSrvGotoPosition(const std::shared_ptr<std_srvs::srv::Trigger::Request> req, const
-    // std::shared_ptr<std_srvs::srv::Trigger::Response> res);
     bool cbSrvGotoPosition(const std::shared_ptr<mrs_msgs::srv::Vec4::Request>  req,
                            const std::shared_ptr<mrs_msgs::srv::Vec4::Response> res);
-    mrs_lib::ServiceServerHandler<mrs_msgs::srv::Vec4> srv_goto_position_;
+    rclcpp::Service<mrs_msgs::srv::Vec4>::SharedPtr srv_goto_position_;
 
     bool cbSrvSetBetaD(const std::shared_ptr<mrs_msgs::srv::Float64Srv::Request>  req,
                        const std::shared_ptr<mrs_msgs::srv::Float64Srv::Response> res);
-    mrs_lib::ServiceServerHandler<mrs_msgs::srv::Float64Srv> srv_set_betaD_;
+    rclcpp::Service<mrs_msgs::srv::Float64Srv>::SharedPtr srv_set_betaD_;
 
-    // | --------------------- service clients -------------------- |
-
-    mrs_lib::ServiceClientHandler<mrs_msgs::srv::ReferenceStampedSrv> sc_set_ref_;
-
-    // ros::ServiceClient sc_set_ref_;
+    // | --------------------- reference output --------------------- |
+    // Replaces the old mrs_msgs::srv::ReferenceStampedSrv call into the MRS control manager.
+    // A PX4 offboard bridge node subscribes to this topic and forwards it to the autopilot.
+    rclcpp::Publisher<mrs_msgs::msg::ReferenceStamped>::SharedPtr pub_reference_out_;
 
     // | --------------------- timer callbacks -------------------- |
 
     void                       cbTmSetRef();
-    std::shared_ptr<TimerType> tm_set_ref_;
+    rclcpp::TimerBase::SharedPtr tm_set_ref_;
 
     void                       cbTmDiagnostics();
-    std::shared_ptr<TimerType> tm_diagnostics_;
+    rclcpp::TimerBase::SharedPtr tm_diagnostics_;
 
     // | ----------------------- publishers ----------------------- |
 
-    mrs_lib::PublisherHandler<visualization_msgs::msg::Marker> pub_viz_position_;
-    mrs_lib::PublisherHandler<visualization_msgs::msg::Marker> pub_viz_centroid_;
-    mrs_lib::PublisherHandler<visualization_msgs::msg::Marker> pub_viz_seed_B_;
-    mrs_lib::PublisherHandler<visualization_msgs::msg::Marker> pub_viz_target_;
-    mrs_lib::PublisherHandler<visualization_msgs::msg::Marker> pub_viz_waypoint_;
-    mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>   pub_viz_cell_A_;
-    mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>   pub_viz_cell_A_sensed_;
-    mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>   pub_viz_inflated_map_;
-    mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>   pub_viz_cloud;
-    mrs_lib::PublisherHandler<nav_msgs::msg::Path>             pub_viz_path_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_viz_position_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_viz_centroid_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_viz_seed_B_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_viz_target_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_viz_waypoint_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr   pub_viz_cell_A_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr   pub_viz_cell_A_sensed_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr   pub_viz_inflated_map_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr   pub_viz_cloud;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr             pub_viz_path_;
 
     std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_proc_;
     std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_raw_;
@@ -157,41 +191,41 @@ namespace rbl_controller
     std::shared_ptr<sensor_msgs::msg::PointCloud2>
     getVizPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& pcl,
               const std::string&                                      frame);
-    // ros::Publisher             pub_viz_path_;
     std::shared_ptr<nav_msgs::msg::Path> getVizPath(const std::vector<Eigen::Vector3d>& path,
                                                     const std::string&                  frame);
-    // ros::Publisher             pub_viz_position_;
     visualization_msgs::msg::Marker getVizPosition(const Eigen::Vector3d& point,
                                                    const double           scale,
                                                    const std::string&     frame);
-    // ros::Publisher             pub_viz_centroid_;
-    // ros::Publisher             pub_viz_seed_B_;
     visualization_msgs::msg::Marker getVizCentroid(const Eigen::Vector3d& point,
                                                    const std::string&     frame);
-    // ros::Publisher             pub_viz_target_;
     visualization_msgs::msg::Marker getVizModGroupGoal(const Eigen::Vector3d& point,
                                                        const double           scale,
                                                        const std::string&     frame);
-    // ros::Publisher             pub_viz_waypoint_;
     visualization_msgs::msg::Marker getVizWaypoint(const Eigen::Vector3d& point,
                                                    const double           scale,
                                                    const std::string&     frame);
 
 
     // | ----------------------- subscribers ---------------------- |
-    bool                                                                       octomap_msg_;
-    mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry>                        sh_odom_;
-    mrs_lib::SubscriberHandler<mrs_msgs::msg::Float64Stamped>                  sh_alt_;
-    mrs_lib::SubscriberHandler<sensor_msgs::msg::PointCloud2>                  sh_pcl_;
-    mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>                     sh_octomap_;
-    mrs_lib::SubscriberHandler<filter_reflective_uavs::msg::PoseVelocityArray> sh_group_states_;
-    mrs_lib::SubscriberHandler<geometry_msgs::msg::PoseArray>                  sh_sim_group_poses_;
-    // std::vector<mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry>> sh_group_odoms_;
+    bool                                                       octomap_msg_;
+    SimpleSub<nav_msgs::msg::Odometry>                        sh_odom_;
+    SimpleSub<mrs_msgs::msg::Float64Stamped>                  sh_alt_;
+    SimpleSub<sensor_msgs::msg::PointCloud2>                  sh_pcl_;
+    SimpleSub<octomap_msgs::msg::Octomap>                     sh_octomap_;
+    SimpleSub<filter_reflective_uavs::msg::PoseVelocityArray> sh_group_states_;
+    SimpleSub<geometry_msgs::msg::PoseArray>                  sh_sim_group_poses_;
 
     void updateGroupStates(const filter_reflective_uavs::msg::PoseVelocityArray::ConstSharedPtr& msg);
     void updateGroupStates(const geometry_msgs::msg::PoseArray::ConstSharedPtr& msg);
 
-    std::shared_ptr<mrs_lib::Transformer> transformer_;
+    // | --------------------- tf2 (replaces mrs_lib::Transformer) --------------------- |
+    std::shared_ptr<tf2_ros::Buffer>            tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    std::optional<geometry_msgs::msg::PointStamped> transformPoint(const geometry_msgs::msg::PointStamped& in,
+                                                                    const std::string& target_frame);
+    std::optional<geometry_msgs::msg::Vector3Stamped> transformVector(const geometry_msgs::msg::Vector3Stamped& in,
+                                                                       const std::string& target_frame);
 
     Eigen::Vector3d           pointToEigen(const geometry_msgs::msg::Point& point);
     Eigen::Vector3d           vectorToEigen(const geometry_msgs::msg::Vector3& vec);
@@ -217,174 +251,183 @@ namespace rbl_controller
 
   void WrapperRosRBL::initialize()  // //{
   {
-    node_  = this->this_node_ptr();
+    // non-owning shared_ptr aliasing `this`, so the rest of the class can keep using node_-> everywhere
+    node_  = std::shared_ptr<rclcpp::Node>(this, [](rclcpp::Node*) {});
     clock_ = node_->get_clock();
 
-    cbkgrp_subs_   = this_node().create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    cbkgrp_sc_     = this_node().create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    cbkgrp_ss_     = this_node().create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    cbkgrp_timers_ = this_node().create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-
-    mrs_lib::ParamLoader param_loader(node_);
-
-    param_loader.addYamlFileFromParam("config");
-    param_loader.addYamlFileFromParam("custom_config");
+    cbkgrp_subs_   = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    cbkgrp_ss_     = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    cbkgrp_timers_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
     std::string odom_topic_name;
     double      rate_tm_set_ref;
     double      rate_tm_diagnostics;
 
-    param_loader.loadParam("uav_name", _agent_name_);
-    param_loader.loadParam("use_sim_time", _is_simulated_);
-    param_loader.loadParam("control_frame", _control_frame_);
-    param_loader.loadParam("group_odoms/enable", _group_odoms_enabled_);
-    param_loader.loadParam("group_odoms/add_to_pcl", _add_agents_to_pcl_);
-    param_loader.loadParam("group_odoms/size", _group_odoms_size_);
+    _agent_name_   = getParam<std::string>(node_.get(), "uav_name", "uav1");
+    _is_simulated_ = getParam<bool>(node_.get(), "use_sim_time", false);
+    _control_frame_ = getParam<std::string>(node_.get(), "control_frame", "uav1/world_origin");
+    _group_odoms_enabled_ = getParam<bool>(node_.get(), "group_odoms.enable", false);
+    _add_agents_to_pcl_   = getParam<bool>(node_.get(), "group_odoms.add_to_pcl", false);
+    _group_odoms_size_    = getParam<int>(node_.get(), "group_odoms.size", 0);
 
-    param_loader.loadParam("odometry_topic", odom_topic_name);
-    param_loader.loadParam("rate/timer_set_ref", rate_tm_set_ref);
-    param_loader.loadParam("rate/timer_diagnostics", rate_tm_diagnostics);
+    odom_topic_name     = getParam<std::string>(node_.get(), "odometry_topic", "odom");
+    rate_tm_set_ref      = getParam<double>(node_.get(), "rate.timer_set_ref", 20.0);
+    rate_tm_diagnostics  = getParam<double>(node_.get(), "rate.timer_diagnostics", 10.0);
 
-    param_loader.loadParam("rbl_controller/only_2d", rbl_params_.only_2d);
-    param_loader.loadParam("rbl_controller/z_min", rbl_params_.z_min);
-    param_loader.loadParam("rbl_controller/z_max", rbl_params_.z_max);
-    param_loader.loadParam("rbl_controller/z_ref", rbl_params_.z_ref);
-    param_loader.loadParam("rbl_controller/d1", rbl_params_.d1);
-    param_loader.loadParam("rbl_controller/d2", rbl_params_.d2);
-    param_loader.loadParam("rbl_controller/d3", rbl_params_.d3);
-    param_loader.loadParam("rbl_controller/d4", rbl_params_.d4);
-    param_loader.loadParam("rbl_controller/d5", rbl_params_.d5);
-    param_loader.loadParam("rbl_controller/d6", rbl_params_.d6);
-    param_loader.loadParam("rbl_controller/d7", rbl_params_.d7);
-    param_loader.loadParam("rbl_controller/radius", rbl_params_.radius);
-    param_loader.loadParam("rbl_controller/encumbrance", rbl_params_.encumbrance);
-    param_loader.loadParam("rbl_controller/step_size", rbl_params_.step_size);
-    param_loader.loadParam("rbl_controller/betaD", rbl_params_.betaD);
-    param_loader.loadParam("rbl_controller/beta_min", rbl_params_.beta_min);
-    param_loader.loadParam("rbl_controller/use_z_rule", rbl_params_.use_z_rule);
-    param_loader.loadParam("rbl_controller/dt", rbl_params_.dt);
-    param_loader.loadParam("rbl_controller/cwvd_rob", rbl_params_.cwvd_rob);
-    param_loader.loadParam("rbl_controller/cwvd_obs", rbl_params_.cwvd_obs);
-    param_loader.loadParam("rbl_controller/use_garmin_alt", rbl_params_.use_garmin_alt);
-    param_loader.loadParam("rbl_controller/replanner", rbl_params_.replanner);
-    param_loader.loadParam("rbl_controller/limited_fov", rbl_params_.limited_fov);
-    param_loader.loadParam("rbl_controller/use_map", rbl_params_.use_map);
-    param_loader.loadParam("rbl_controller/ciri", rbl_params_.ciri);
-    param_loader.loadParam("rbl_controller/boundary_threshold", rbl_params_.boundary_threshold);
-    param_loader.loadParam("rbl_controller/boundary_threshold_speed", rbl_params_.boundary_threshold_speed);
-    param_loader.loadParam("rbl_controller/lidar_tilt", rbl_params_.lidar_tilt);
-    param_loader.loadParam("rbl_controller/lidar_fov", rbl_params_.lidar_fov);
-    param_loader.loadParam("rbl_controller/move_centroid_to_sensed_cell", rbl_params_.move_centroid_to_sensed_cell);
-    param_loader.loadParam("rbl_controller/octomap/octomap_msg", octomap_msg_);
-    param_loader.loadParam("rbl_controller/pcl/downsample", rbl_params_.downsample_pcl);
-    param_loader.loadParam("rbl_controller/pcl/voxel_size", rbl_params_.voxel_size);
-    param_loader.loadParam("rbl_controller/add_estimates_as_voxels", rbl_params_.add_estimates_as_voxels);
-    param_loader.loadParam("replanner/inflation_bonus", rbl_params_.inflation_bonus);
-
-    if (!param_loader.loadedSuccessfully()) {
-      RCLCPP_ERROR(node_->get_logger(), "failed to load non-optional parameters!");
-      rclcpp::shutdown();
-    }
+    rbl_params_.only_2d      = getParam<bool>(node_.get(), "rbl_controller.only_2d", false);
+    rbl_params_.z_min        = getParam<double>(node_.get(), "rbl_controller.z_min", 0.0);
+    rbl_params_.z_max        = getParam<double>(node_.get(), "rbl_controller.z_max", 4.0);
+    rbl_params_.z_ref        = getParam<double>(node_.get(), "rbl_controller.z_ref", 1.0);
+    rbl_params_.d1           = getParam<double>(node_.get(), "rbl_controller.d1", 1.0);
+    rbl_params_.d2           = getParam<double>(node_.get(), "rbl_controller.d2", 1.0);
+    rbl_params_.d3           = getParam<double>(node_.get(), "rbl_controller.d3", 1.0);
+    rbl_params_.d4           = getParam<double>(node_.get(), "rbl_controller.d4", 1.0);
+    rbl_params_.d5           = getParam<double>(node_.get(), "rbl_controller.d5", 1.0);
+    rbl_params_.d6           = getParam<double>(node_.get(), "rbl_controller.d6", 1.0);
+    rbl_params_.d7           = getParam<double>(node_.get(), "rbl_controller.d7", 1.0);
+    rbl_params_.radius       = getParam<double>(node_.get(), "rbl_controller.radius", 5.0);
+    rbl_params_.encumbrance  = getParam<double>(node_.get(), "rbl_controller.encumbrance", 0.5);
+    rbl_params_.step_size    = getParam<double>(node_.get(), "rbl_controller.step_size", 0.2);
+    rbl_params_.betaD        = getParam<double>(node_.get(), "rbl_controller.betaD", 0.3);
+    rbl_params_.beta_min     = getParam<double>(node_.get(), "rbl_controller.beta_min", 0.1);
+    rbl_params_.use_z_rule   = getParam<bool>(node_.get(), "rbl_controller.use_z_rule", false);
+    rbl_params_.dt           = getParam<double>(node_.get(), "rbl_controller.dt", 0.1);
+    rbl_params_.cwvd_rob     = getParam<double>(node_.get(), "rbl_controller.cwvd_rob", 0.5);
+    rbl_params_.cwvd_obs     = getParam<double>(node_.get(), "rbl_controller.cwvd_obs", 0.5);
+    rbl_params_.use_garmin_alt = getParam<bool>(node_.get(), "rbl_controller.use_garmin_alt", false);
+    rbl_params_.replanner    = getParam<bool>(node_.get(), "rbl_controller.replanner", true);
+    rbl_params_.limited_fov  = getParam<bool>(node_.get(), "rbl_controller.limited_fov", true);
+    rbl_params_.use_map      = getParam<bool>(node_.get(), "rbl_controller.use_map", true);
+    rbl_params_.ciri         = getParam<bool>(node_.get(), "rbl_controller.ciri", false);
+    rbl_params_.boundary_threshold       = getParam<double>(node_.get(), "rbl_controller.boundary_threshold", 0.2);
+    rbl_params_.boundary_threshold_speed = getParam<double>(node_.get(), "rbl_controller.boundary_threshold_speed", 0.01);
+    rbl_params_.lidar_tilt   = getParam<double>(node_.get(), "rbl_controller.lidar_tilt", 20.0);
+    rbl_params_.lidar_fov    = getParam<double>(node_.get(), "rbl_controller.lidar_fov", 59.0);
+    rbl_params_.move_centroid_to_sensed_cell =
+        getParam<bool>(node_.get(), "rbl_controller.move_centroid_to_sensed_cell", false);
+    octomap_msg_             = getParam<bool>(node_.get(), "rbl_controller.octomap.octomap_msg", false);
+    rbl_params_.downsample_pcl = getParam<bool>(node_.get(), "rbl_controller.pcl.downsample", true);
+    rbl_params_.voxel_size     = getParam<double>(node_.get(), "rbl_controller.pcl.voxel_size", 0.3);
+    rbl_params_.add_estimates_as_voxels =
+        getParam<bool>(node_.get(), "rbl_controller.add_estimates_as_voxels", true);
+    rbl_params_.inflation_bonus = getParam<double>(node_.get(), "replanner.inflation_bonus", 0.2);
 
     // | ----------------------- subscribers ---------------------- |
 
-    mrs_lib::SubscriberHandlerOptions shopts;
+    rclcpp::QoS qos_subs(rclcpp::KeepLast(5));
 
-    shopts.node                                = node_;
-    shopts.node_name                           = "WrapperRosRBL";
-    shopts.threadsafe                          = true;
-    shopts.autostart                           = true;
-    shopts.subscription_options.callback_group = cbkgrp_subs_;
-
-    sh_odom_ = mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry>(shopts, "~/odom_in");
-    sh_alt_  = mrs_lib::SubscriberHandler<mrs_msgs::msg::Float64Stamped>(shopts, "~/alt_in");
+    sh_odom_.subscribe(node_.get(), "~/odom_in", qos_subs, cbkgrp_subs_);
+    sh_alt_.subscribe(node_.get(), "~/alt_in", qos_subs, cbkgrp_subs_);
     if (octomap_msg_) {
-      sh_octomap_ = mrs_lib::SubscriberHandler<octomap_msgs::msg::Octomap>(shopts, "~/octomap_in");
+      sh_octomap_.subscribe(node_.get(), "~/octomap_in", qos_subs, cbkgrp_subs_);
     }
     else {
-      sh_pcl_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::PointCloud2>(shopts, "~/pcl_in");
+      sh_pcl_.subscribe(node_.get(), "~/pcl_in", qos_subs, cbkgrp_subs_);
     }
 
     if (_is_simulated_) {
-      sh_sim_group_poses_ = mrs_lib::SubscriberHandler<geometry_msgs::msg::PoseArray>(shopts, "~/sim_group_poses_in");
+      sh_sim_group_poses_.subscribe(node_.get(), "~/sim_group_poses_in", qos_subs, cbkgrp_subs_);
     }
     else {
-      sh_group_states_ =
-          mrs_lib::SubscriberHandler<filter_reflective_uavs::msg::PoseVelocityArray>(shopts, "~/group_states_in");
+      sh_group_states_.subscribe(node_.get(), "~/group_states_in", qos_subs, cbkgrp_subs_);
     }
 
     // | ------------------------- timers ------------------------- |
 
-    mrs_lib::TimerHandlerOptions opts_autostart;
+    tm_set_ref_ = node_->create_wall_timer(
+        std::chrono::duration<double>(1.0 / rate_tm_set_ref), std::bind(&WrapperRosRBL::cbTmSetRef, this),
+        cbkgrp_timers_);
 
-    opts_autostart.node           = node_;
-    opts_autostart.autostart      = true;
-    opts_autostart.callback_group = cbkgrp_timers_;
-
-    {
-      std::function<void()> callback_fn = std::bind(&WrapperRosRBL::cbTmSetRef, this);
-      tm_set_ref_ = std::make_shared<TimerType>(opts_autostart, rclcpp::Rate(rate_tm_set_ref, clock_), callback_fn);
-    }
-
-    {
-      std::function<void()> callback_fn = std::bind(&WrapperRosRBL::cbTmDiagnostics, this);
-      tm_diagnostics_ =
-          std::make_shared<TimerType>(opts_autostart, rclcpp::Rate(rate_tm_diagnostics, clock_), callback_fn);
-    }
+    tm_diagnostics_ = node_->create_wall_timer(
+        std::chrono::duration<double>(1.0 / rate_tm_diagnostics), std::bind(&WrapperRosRBL::cbTmDiagnostics, this),
+        cbkgrp_timers_);
 
     // | --------------------- service servers -------------------- |
 
-    srv_activate_control_ = mrs_lib::ServiceServerHandler<std_srvs::srv::Trigger>(
-        node_,
+    srv_activate_control_ = node_->create_service<std_srvs::srv::Trigger>(
         "~/control_activation_in",
         std::bind(&WrapperRosRBL::cbSrvActivateControl, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::SystemDefaultsQoS(),
+        rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
-    srv_deactivate_control_ = mrs_lib::ServiceServerHandler<std_srvs::srv::Trigger>(
-        node_,
+    srv_deactivate_control_ = node_->create_service<std_srvs::srv::Trigger>(
         "~/control_deactivation_in",
         std::bind(&WrapperRosRBL::cbSrvDeactivateControl, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::SystemDefaultsQoS(),
+        rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
-    srv_goto_position_ = mrs_lib::ServiceServerHandler<mrs_msgs::srv::Vec4>(
-        node_,
+    srv_goto_position_ = node_->create_service<mrs_msgs::srv::Vec4>(
         "~/goto_out",
         std::bind(&WrapperRosRBL::cbSrvGotoPosition, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::SystemDefaultsQoS(),
+        rclcpp::ServicesQoS(),
         cbkgrp_ss_);
-    srv_set_betaD_ = mrs_lib::ServiceServerHandler<mrs_msgs::srv::Float64Srv>(
-        node_,
+
+    srv_set_betaD_ = node_->create_service<mrs_msgs::srv::Float64Srv>(
         "~/set_betaD",
         std::bind(&WrapperRosRBL::cbSrvSetBetaD, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::SystemDefaultsQoS(),
+        rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
-    // | --------------------- service clients -------------------- |
+    // | ----------------------- reference output ------------------ |
 
-    sc_set_ref_ = mrs_lib::ServiceClientHandler<mrs_msgs::srv::ReferenceStampedSrv>(node_, "~/ref_out", cbkgrp_sc_);
+    pub_reference_out_ = node_->create_publisher<mrs_msgs::msg::ReferenceStamped>("~/ref_out", rclcpp::QoS(1));
 
     // | ----------------------- publishers ----------------------- |
-    pub_viz_position_      = mrs_lib::PublisherHandler<visualization_msgs::msg::Marker>(node_, "~/position");
-    pub_viz_centroid_      = mrs_lib::PublisherHandler<visualization_msgs::msg::Marker>(node_, "~/centroid");
-    pub_viz_seed_B_        = mrs_lib::PublisherHandler<visualization_msgs::msg::Marker>(node_, "~/seed_B");
-    pub_viz_target_        = mrs_lib::PublisherHandler<visualization_msgs::msg::Marker>(node_, "~/target");
-    pub_viz_waypoint_      = mrs_lib::PublisherHandler<visualization_msgs::msg::Marker>(node_, "~/replanner_waypoint");
-    pub_viz_cell_A_        = mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "~/cell_a");
-    pub_viz_cell_A_sensed_ = mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "~/actively_sensed_A");
-    pub_viz_inflated_map_  = mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "~/inflated_map");
-    pub_viz_cloud          = mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "~/cloud");
-    pub_viz_path_          = mrs_lib::PublisherHandler<nav_msgs::msg::Path>(node_, "~/path");
+    pub_viz_position_      = node_->create_publisher<visualization_msgs::msg::Marker>("~/position", rclcpp::QoS(1));
+    pub_viz_centroid_      = node_->create_publisher<visualization_msgs::msg::Marker>("~/centroid", rclcpp::QoS(1));
+    pub_viz_seed_B_        = node_->create_publisher<visualization_msgs::msg::Marker>("~/seed_B", rclcpp::QoS(1));
+    pub_viz_target_        = node_->create_publisher<visualization_msgs::msg::Marker>("~/target", rclcpp::QoS(1));
+    pub_viz_waypoint_      = node_->create_publisher<visualization_msgs::msg::Marker>("~/replanner_waypoint", rclcpp::QoS(1));
+    pub_viz_cell_A_        = node_->create_publisher<sensor_msgs::msg::PointCloud2>("~/cell_a", rclcpp::QoS(1));
+    pub_viz_cell_A_sensed_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("~/actively_sensed_A", rclcpp::QoS(1));
+    pub_viz_inflated_map_  = node_->create_publisher<sensor_msgs::msg::PointCloud2>("~/inflated_map", rclcpp::QoS(1));
+    pub_viz_cloud          = node_->create_publisher<sensor_msgs::msg::PointCloud2>("~/cloud", rclcpp::QoS(1));
+    pub_viz_path_          = node_->create_publisher<nav_msgs::msg::Path>("~/path", rclcpp::QoS(1));
 
-    transformer_ = std::make_shared<mrs_lib::Transformer>(node_);
-    transformer_->retryLookupNewest(true);
+    tf_buffer_   = std::make_shared<tf2_ros::Buffer>(clock_);
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, node_);
 
     rbl_controller_ = std::make_shared<RBLController>(rbl_params_);
     RCLCPP_INFO_ONCE(node_->get_logger(), "Initialized RBLController with params");
 
     is_initialized_ = true;
     RCLCPP_INFO_ONCE(node_->get_logger(), "Initialization completed");
+  }  // //}
+
+  std::optional<geometry_msgs::msg::PointStamped> WrapperRosRBL::transformPoint(  // //{
+      const geometry_msgs::msg::PointStamped& in,
+      const std::string&                      target_frame)
+  {
+    if (in.header.frame_id == target_frame || in.header.frame_id.empty()) {
+      return in;
+    }
+
+    try {
+      return tf_buffer_->transform(in, target_frame, tf2::durationFromSec(0.1));
+    }
+    catch (const tf2::TransformException& ex) {
+      RCLCPP_WARN(node_->get_logger(), "TF: could not transform point from %s to %s: %s",
+                  in.header.frame_id.c_str(), target_frame.c_str(), ex.what());
+      return std::nullopt;
+    }
+  }  // //}
+
+  std::optional<geometry_msgs::msg::Vector3Stamped> WrapperRosRBL::transformVector(  // //{
+      const geometry_msgs::msg::Vector3Stamped& in,
+      const std::string&                        target_frame)
+  {
+    if (in.header.frame_id == target_frame || in.header.frame_id.empty()) {
+      return in;
+    }
+
+    try {
+      return tf_buffer_->transform(in, target_frame, tf2::durationFromSec(0.1));
+    }
+    catch (const tf2::TransformException& ex) {
+      RCLCPP_WARN(node_->get_logger(), "TF: could not transform vector from %s to %s: %s",
+                  in.header.frame_id.c_str(), target_frame.c_str(), ex.what());
+      return std::nullopt;
+    }
   }  // //}
 
   void WrapperRosRBL::updateGroupStates(const filter_reflective_uavs::msg::PoseVelocityArray::ConstSharedPtr& msg)
@@ -410,7 +453,7 @@ namespace rbl_controller
       point_msg.header = msg->header;
       point_msg.point  = msg->poses[i].position;
 
-      auto transformed_point = transformer_->transformSingle(point_msg, _control_frame_);
+      auto transformed_point = transformPoint(point_msg, _control_frame_);
       if (!transformed_point) {
         RCLCPP_WARN(node_->get_logger(),
                     "Failed to transform group state position %zu from %s to %s",
@@ -424,7 +467,7 @@ namespace rbl_controller
       velocity_msg.header = msg->header;
       velocity_msg.vector = msg->velocities[i];
 
-      auto transformed_velocity = transformer_->transformSingle(velocity_msg, _control_frame_);
+      auto transformed_velocity = transformVector(velocity_msg, _control_frame_);
       if (!transformed_velocity) {
         RCLCPP_WARN(node_->get_logger(),
                     "Failed to transform group state velocity %zu from %s to %s",
@@ -471,7 +514,7 @@ namespace rbl_controller
       point_msg.header = msg->header;
       point_msg.point  = pose.position;
 
-      auto transformed_point = transformer_->transformSingle(point_msg, _control_frame_);
+      auto transformed_point = transformPoint(point_msg, _control_frame_);
       if (!transformed_point) {
         RCLCPP_WARN(node_->get_logger(),
                     "Failed to transform position from %s to %s",
@@ -511,16 +554,16 @@ namespace rbl_controller
     }
     RCLCPP_INFO_ONCE(node_->get_logger(), "After activation");
 
-    auto msg_ref             = std::make_shared<mrs_msgs::srv::ReferenceStampedSrv::Request>();
-    msg_ref->header.frame_id = _control_frame_;
-    msg_ref->header.stamp    = clock_->now();
+    mrs_msgs::msg::ReferenceStamped ref_msg;
+    ref_msg.header.frame_id = _control_frame_;
+    ref_msg.header.stamp    = clock_->now();
 
     if (sh_odom_.newMsg()) {
       auto                             odom = sh_odom_.getMsg();
       geometry_msgs::msg::PointStamped tmp_pt;
       tmp_pt.header = odom->header;
       tmp_pt.point  = odom->pose.pose.position;
-      auto res      = transformer_->transformSingle(tmp_pt, _control_frame_);
+      auto res      = transformPoint(tmp_pt, _control_frame_);
 
       if (!res) {
         RCLCPP_ERROR(node_->get_logger(), "Could not transform odometry msg to control frame.");
@@ -536,7 +579,7 @@ namespace rbl_controller
       geometry_msgs::msg::Vector3Stamped tmp_vel;
       tmp_vel.header = odom->header;
       tmp_vel.vector = odom->twist.twist.linear;
-      auto vel_res   = transformer_->transformSingle(tmp_vel, _control_frame_);
+      auto vel_res   = transformVector(tmp_vel, _control_frame_);
 
       if (!vel_res) {
         RCLCPP_ERROR(node_->get_logger(), "Could not transform velocity to control frame.");
@@ -662,7 +705,7 @@ namespace rbl_controller
             point_stamped.header = msg->header;
             point_stamped.point  = point_msg;
 
-            auto transformed_point = transformer_->transformSingle(point_stamped, _control_frame_);
+            auto transformed_point = transformPoint(point_stamped, _control_frame_);
             if (!transformed_point) {
               ++transform_failed_count;
               RCLCPP_WARN(node_->get_logger(),
@@ -719,7 +762,6 @@ namespace rbl_controller
           std::scoped_lock lck(mtx_rbl_);
           rbl_controller_->setPCL(last_obstacle_cloud_);
         }
-        // rbl_controller_->setPCL1(last_obstacle_cloud_);
         RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
       }
     }
@@ -730,14 +772,12 @@ namespace rbl_controller
         pcl::fromROSMsg(*msg, tmp);
         last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
 
-        // std::cout << last_obstacle_cloud_->points.size() << std::endl;
         pcl_loaded_ = true;
 
         {
           std::scoped_lock lck(mtx_rbl_);
           rbl_controller_->setPCL(last_obstacle_cloud_);
         }
-        // rbl_controller_->setPCL1(last_obstacle_cloud_);
         RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
       }
     }
@@ -763,17 +803,7 @@ namespace rbl_controller
       rbl_controller_->setPCL(cloud);
     }
     RCLCPP_INFO_ONCE(node_->get_logger(), "Setted curent pcl to rbl");
-    pub_viz_cloud.publish(*getVizPCL(cloud, _control_frame_));
-
-    // if (_group_odoms_enabled_ && _add_agents_to_pcl_) {
-    //   cloud = addAgents2PCL(cloud, group_states, rbl_params_.voxel_size, rbl_params_.encumbrance);
-    // }
-    // if (cloud->empty()) {
-    //   ROS_ERROR("[WrapperRosRBL]: PCL is empty");
-    //   return;
-    // }
-    // rbl_controller_->setPCL(cloud);
-    // pub_viz_cloud.publish(*getVizPCL(cloud, _control_frame_));
+    pub_viz_cloud->publish(*getVizPCL(cloud, _control_frame_));
 
     {
       std::scoped_lock lck(mtx_rbl_);
@@ -783,14 +813,10 @@ namespace rbl_controller
         RCLCPP_ERROR(node_->get_logger(), "Could not get next valid ref");
         return;
       }
-      msg_ref->reference = ret.value();
+      ref_msg.reference = ret.value();
     }
 
-    auto res = sc_set_ref_.callSync(msg_ref);
-
-    if (!res) {
-      RCLCPP_WARN(node_->get_logger(), "Failed to set reference");
-    }
+    pub_reference_out_->publish(ref_msg);
 
   }  // //}
 
@@ -824,15 +850,15 @@ namespace rbl_controller
       path_points          = rbl_controller_->getPath();
     }
 
-    pub_viz_target_.publish(getVizModGroupGoal(goal, 2 * rbl_params_.encumbrance, _control_frame_));
-    pub_viz_waypoint_.publish(getVizWaypoint(waypoint, 2 * rbl_params_.encumbrance, _control_frame_));
-    pub_viz_position_.publish(getVizPosition(current_position, 2 * rbl_params_.encumbrance, _control_frame_));
-    pub_viz_centroid_.publish(getVizCentroid(centroid, _control_frame_));
-    pub_viz_seed_B_.publish(getVizCentroid(seed_b, _control_frame_));
+    pub_viz_target_->publish(getVizModGroupGoal(goal, 2 * rbl_params_.encumbrance, _control_frame_));
+    pub_viz_waypoint_->publish(getVizWaypoint(waypoint, 2 * rbl_params_.encumbrance, _control_frame_));
+    pub_viz_position_->publish(getVizPosition(current_position, 2 * rbl_params_.encumbrance, _control_frame_));
+    pub_viz_centroid_->publish(getVizCentroid(centroid, _control_frame_));
+    pub_viz_seed_B_->publish(getVizCentroid(seed_b, _control_frame_));
 
     auto cell_A = getVizCellA(cell_a_points, _control_frame_);
     if (cell_A) {
-      pub_viz_cell_A_.publish(*cell_A);
+      pub_viz_cell_A_->publish(*cell_A);
     }
     else {
       RCLCPP_WARN(node_->get_logger(), "Failed to publish cell A");
@@ -840,7 +866,7 @@ namespace rbl_controller
 
     auto cell_A_sensed = getVizCellA(sensed_cell_a_points, _control_frame_);
     if (cell_A_sensed) {
-      pub_viz_cell_A_sensed_.publish(*cell_A_sensed);
+      pub_viz_cell_A_sensed_->publish(*cell_A_sensed);
     }
     else {
       RCLCPP_WARN(node_->get_logger(), "Failed to publish sensed cell A");
@@ -848,7 +874,7 @@ namespace rbl_controller
 
     auto inflated_map = getVizInflatedMap(inflated_map_points, _control_frame_);
     if (inflated_map) {
-      pub_viz_inflated_map_.publish(*inflated_map);
+      pub_viz_inflated_map_->publish(*inflated_map);
     }
     else {
       RCLCPP_WARN(node_->get_logger(), "Failed to publish inflated map");
@@ -856,14 +882,12 @@ namespace rbl_controller
 
     auto path = getVizPath(path_points, _control_frame_);
     if (path) {
-      pub_viz_path_.publish(*path);
+      pub_viz_path_->publish(*path);
     }
     else {
       RCLCPP_WARN(node_->get_logger(), "Failed to publish planned path");
     }
   }  // //}
-  bool cbSrvActivateControl(const std::shared_ptr<std_srvs::srv::Trigger::Request>  req,
-                            const std::shared_ptr<std_srvs::srv::Trigger::Response> res);
 
   bool WrapperRosRBL::cbSrvActivateControl(
       [[maybe_unused]] const std::shared_ptr<std_srvs::srv::Trigger::Request> req,  // //{
@@ -1163,8 +1187,6 @@ namespace rbl_controller
                                const double                                      encumbrance)
   {
     const int num_voxels_half_side = std::ceil(encumbrance / voxel_size);
-    // injected_points_map_.clear();
-    //
 
     for (const auto& state : group_states) {
       const Eigen::Vector3d& position = state.position;
@@ -1200,7 +1222,6 @@ namespace rbl_controller
             pt.y         = voxel_center_y;
             pt.z         = voxel_center_z;
             pt.intensity = 1.0f;
-            // Standard output print
             cloud->push_back(pt);
           }
         }

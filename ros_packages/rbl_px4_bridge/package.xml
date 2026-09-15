@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rbl_px4_bridge</name>
+  <version>0.0.0</version>
+  <description>
+    Bridges the rbl_controller_node output to a native PX4 offboard control session over
+    uXRCE-DDS (px4_msgs), and PX4's vehicle odometry back into a plain nav_msgs/Odometry.
+    Lets the irbl stack fly on PX4-Autopilot (SITL or real) without the MRS UAV system.
+  </description>
+  <maintainer email="manuel.boldrer@gmail.com">Manuel Boldrer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <depend>rclcpp</depend>
+  <depend>px4_msgs</depend>
+  <depend>px4_ros_com</depend>
+  <depend>mrs_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>eigen</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
