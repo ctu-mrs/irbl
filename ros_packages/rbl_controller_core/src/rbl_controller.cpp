@@ -171,7 +171,16 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   /*   return std::nullopt; */
   /* } */
 
-  // cloud_ = getGroundCleanCloud(cloud_, agent_pos_, altitude_);
+  // Was dead code (never active, introduced already commented out): params_.downsample_pcl
+  // ("rbl_controller.pcl.downsample" in yaml) had no effect at all, since this is the only call
+  // site of downSamplePcl(). Every point of the raw incoming cloud -- including every point along
+  // a densely-sampled curved surface like a tree trunk, none of which mutually exclude each other
+  // in ciri's greedy plane cutting the way a coarser voxel grid would -- was reaching
+  // partitionCellACiri() directly, which is why raising ciri's plane cap alone didn't fix the
+  // "plane count exceeded limit" warning under a dense scan. cloud_obs_ stays commented out: it's
+  // separate, unfinished work-in-progress from the same commit and is never assigned anywhere, so
+  // calling getGroundCleanCloud() on it would dereference a null cloud.
+  cloud_ = getGroundCleanCloud(cloud_, agent_pos_, altitude_);
   // cloud_obs_ = getGroundCleanCloud(cloud_obs_, agent_pos_, altitude_);
   if (!cloud_) {
     return std::nullopt;
@@ -718,6 +727,8 @@ bool RBLController::partitionCellACiri(std::vector<Eigen::Vector3d>&            
 
   // map cloud ptr to Eigen::Matrix3Xd as input to ciri
   size_t num_points = cloud->points.size();
+  std::cout << "[RBLController]: Feeding ciri " << num_points << " points (cloud_low_intensity, after downsampling)"
+            << std::endl;
   if (num_points == 0) {
     std::cout << "[RBLController]: Mapping cloud ptr to Eigen::Matrix3Xd not possible, cloud is empty." << std::endl;
     return false;
@@ -1662,6 +1673,24 @@ RBLController::downSamplePcl(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& c
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr boost_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(*cloud);
   pcl::PointCloud<pcl::PointXYZI>::Ptr boost_voxelized_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+
+  // pcl::VoxelGrid sizes its internal grid from the cloud's bounding box and does not itself
+  // guard against non-finite points -- a single NaN/Inf (e.g. a real lidar's "no return" ray,
+  // out of range or into open sky) blows that box up enough to overflow its integer grid index,
+  // at which point it just gives up and hands back the input cloud completely unfiltered (logged
+  // as "Leaf size is too small for the input dataset. Integer indices would overflow."). Strip
+  // those first, same as any real PCL-based sensor pipeline has to.
+  //
+  // removeNaNFromPointCloud() itself takes a fast path that skips filtering entirely whenever
+  // cloud_in.is_dense is already true, trusting that flag instead of actually checking each
+  // point -- ros_gz_bridge's gz-to-ROS PointCloud2 conversion has no way to know whether the
+  // underlying gz sensor plugin ever emits non-finite points, so it can't be trusted to report
+  // is_dense accurately, and pcl::fromROSMsg() just carries that (possibly wrong) flag straight
+  // through. Force the slow, per-point path so a stale/incorrect is_dense:true doesn't silently
+  // defeat this filtering the same way it defeated VoxelGrid's own overflow guard above.
+  boost_cloud->is_dense = false;
+  std::vector<int> finite_indices;
+  pcl::removeNaNFromPointCloud(*boost_cloud, *boost_cloud, finite_indices);
 
   pcl::VoxelGrid<pcl::PointXYZI> sor;
   sor.setInputCloud(boost_cloud);

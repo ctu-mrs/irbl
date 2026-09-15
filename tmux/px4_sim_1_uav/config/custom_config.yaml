@@ -43,5 +43,8 @@ failsafe_commander:
   COM_RC_IN_MODE: 0        # RC input handling: 0 RC and joystick, 1 joystick only, 4 disable both
   COM_OBL_ACT: 2            # action on Offboard signal loss: 0 land, 1 hold (loiter), 2 RTL
   COM_OBL_RC_ACT: 0         # action on Offboard loss with a valid RC still present: 0 hand control back to RC
+  COM_OF_LOSS_T: 1.0         # [s] how long PX4 tolerates a stalled offboard stream (px4_bridge_node's
+                              # publish_rate, default 20 Hz / 0.05s period) before declaring it lost and
+                              # triggering COM_OBL_ACT/COM_OBL_RC_ACT above
   COM_LOW_BAT_ACT: 2        # low battery action: 0 warn only, 1 return, 2 land, 3 return then land at critical
   GF_ACTION: 2               # geofence breach action: 0 none, 1 warn, 2 hold, 3 RTL, 4 terminate

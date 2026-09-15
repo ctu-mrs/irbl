@@ -1,5 +1,15 @@
 #include "ciri/ciri.h"
 
+namespace
+{
+// Upper bound on separating planes comvexDecomposition() will build for a single seed before
+// giving up. Each plane it adds knocks out every other candidate point already behind it, so this
+// isn't "one plane per input point" -- it's roughly one plane per *distinct* nearby obstacle
+// direction within the seed's sensing radius. 30 was enough for a sparse test scene; a denser
+// obstacle field (more separate obstacles within sensing range at once) can legitimately need more.
+constexpr std::size_t kMaxPlanes = 128;
+}  // namespace
+
 CIRI::CIRI(const ciriParams& params) : params_(params)  // //{
 {
   sphere_template_ =
@@ -66,7 +76,7 @@ bool CIRI::comvexDecomposition(const Eigen::MatrixX4f& bd,
     const Eigen::Matrix3f C_inv = E.C().inverse();
 
     planes.clear();
-    planes.reserve(30);
+    planes.reserve(kMaxPlanes);
     Eigen::Vector3f tmp_nn_pt;
     Eigen::Vector4f plan_before_ab;
 
@@ -175,8 +185,9 @@ bool CIRI::comvexDecomposition(const Eigen::MatrixX4f& bd,
         }
       }
       planes.push_back(temp_plane_w);
-      if (planes.size() > 30) {
-        std::cout << "[CIRI]: WARNING! plane count exceeded limit" << std::endl;
+      if (planes.size() > kMaxPlanes) {
+        std::cout << "[CIRI]: WARNING! plane count exceeded limit (" << planes.size() << " > " << kMaxPlanes
+                   << ", N=" << N << " input points)" << std::endl;
         return false;
       }
     }

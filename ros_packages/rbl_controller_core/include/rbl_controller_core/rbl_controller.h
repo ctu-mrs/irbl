@@ -34,6 +34,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/filter.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
 // Standard CPP libs

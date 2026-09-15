@@ -38,7 +38,7 @@ windows:
       panes:
         - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
           -p uav_name:=$UAV_NAME -p control_frame:=$UAV_NAME/world_origin
-          -p takeoff_altitude:=2.0 -p auto_arm:=true
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0
   - map_generator:
       layout: tiled
       panes:

@@ -110,14 +110,14 @@ windows:
       panes:
         - export UAV_NAME=uav1; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
           -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
-          -p takeoff_altitude:=2.0 -p auto_arm:=true
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0
         - export UAV_NAME=uav2; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
           -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
-          -p takeoff_altitude:=2.0 -p auto_arm:=true -p px4_ns:=px4_1 -p target_system:=2
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0 -p px4_ns:=px4_1 -p target_system:=2
           -p home_offset_x:=$UAV2_SPAWN_X -p home_offset_y:=$UAV2_SPAWN_Y -p home_offset_z:=$UAV2_SPAWN_Z
         - export UAV_NAME=uav3; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
           -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
-          -p takeoff_altitude:=2.0 -p auto_arm:=true -p px4_ns:=px4_2 -p target_system:=3
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0 -p px4_ns:=px4_2 -p target_system:=3
           -p home_offset_x:=$UAV3_SPAWN_X -p home_offset_y:=$UAV3_SPAWN_Y -p home_offset_z:=$UAV3_SPAWN_Z
   - group_state_relay:
       layout: tiled
