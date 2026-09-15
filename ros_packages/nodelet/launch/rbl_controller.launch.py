@@ -27,7 +27,7 @@ def generate_launch_description():
     standalone = LaunchConfiguration("standalone")
     container_name = LaunchConfiguration("container_name")
     custom_config = LaunchConfiguration("custom_config")
-    pcl_topic = LaunchConfiguration("pcl_topic")  # 👈 NEW
+    pcl_topic = LaunchConfiguration("pcl_topic") 
     debug = LaunchConfiguration("debug")
     use_sim_time = LaunchConfiguration("use_sim_time")
     control_frame = LaunchConfiguration("control_frame")
@@ -48,7 +48,6 @@ def generate_launch_description():
                 default_value=default_config_path,
                 description="Path to config file",
             ),
-            # 👇 NEW ARGUMENT
             DeclareLaunchArgument(
                 "pcl_topic",
                 default_value="/uav2/losos_server/current_submap_pc",
@@ -109,7 +108,6 @@ def generate_launch_description():
         remappings=[
             ("~/odom_in", "odometry"),
             ("~/alt_in", "alt"),
-            # 👇 NOW CONFIGURABLE
             ("~/pcl_in", pcl_topic),
             ("~/octomap_in", "octomap_server/octomap_local_binary"),
             ("~/group_states_in", "filter_reflective_uavs/pose_vel"),
