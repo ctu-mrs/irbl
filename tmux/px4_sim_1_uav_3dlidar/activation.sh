@@ -4,6 +4,6 @@
 # spawn point, trunks as close as ~0.25m edge-to-edge elsewhere). This goal sends it straight down
 # the x axis through that whole field -- about 9 trees sit directly in that corridor -- so the 3D
 # lidar has to actually detect and repeatedly avoid obstacles, not just clip the odd one at the edges.
-ros2 service call /uav1/rbl_controller/goto rbl_msgs/srv/Vec4 "{goal: [20, 1, 2.5, 0.0]}"
+ros2 service call /uav1/rbl_controller/goto rbl_msgs/srv/Vec4 "{goal: [-20, 1, 2.5, 0.0]}"
 
 ros2 service call /uav1/rbl_controller/activation std_srvs/srv/Trigger
