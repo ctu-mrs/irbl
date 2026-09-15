@@ -4,8 +4,8 @@
 # NAV_DLL_ACT. This is a runtime `param set` against the running instance, not a permanent edit of
 # any file in this repository or in PX4-Autopilot.
 
-export TMUX_SOCKET_NAME=px4sim
-export TMUX_SESSION_NAME=px4_simulation
+export TMUX_SOCKET_NAME=px4sim3dlidar
+export TMUX_SESSION_NAME=px4_simulation_3dlidar
 
 CONFIG="$(dirname "$0")/config/custom_config.yaml"
 

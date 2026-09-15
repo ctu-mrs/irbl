@@ -1,0 +1,106 @@
+---
+# PX4-Autopilot SITL simulation of the irbl stack, single UAV, with a real simulated 3D lidar
+# (x500_lidar_3d, a Livox Mid-360-like sensor -- see PX4-gazebo-models' Tools/simulation/gz/models/
+# x500_lidar_3d/model.sdf) feeding rbl_controller_node instead of px4_sim_1_uav's synthetic
+# map_generator obstacle map, flying in the 'cylinder_forest' world (20 randomly-placed cylindrical
+# tree obstacles, same footprint/density as map_generator's defaults -- see
+# Tools/simulation/gz/worlds/cylinder_forest.sdf), no MRS system/library involved.
+root: ./
+name: px4_simulation_3dlidar
+socket_name: px4sim3dlidar
+attach: false
+startup_window: activation
+pre_window:
+  - export UAV_NAME=uav1
+  - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
+  - export HEADLESS=${HEADLESS:-0}
+  # Overrides the gz_x500_lidar_3d airframe's own default world (ROMFS/px4fmu_common/init.d-posix/
+  # airframes/4023_gz_x500_lidar_3d normally boots into 'walls') -- the lidar_bridge window below
+  # needs this to build the exact gz topic path to bridge, so it must stay in sync with this value.
+  - export PX4_GZ_WORLD=cylinder_forest
+  # gz sim stamps the bridged 3D lidar cloud with its own sim clock (seconds since the world
+  # started), not wall time -- everything that needs to resolve TF at that cloud's timestamp
+  # (rviz, when Fixed Frame isn't just the cloud's own frame) has to share that same clock, or a
+  # composed lookup through a wall-clock-stamped transform silently fails. clock_bridge below
+  # bridges it into ROS' standard /clock topic; every node below that reads it passes
+  # use_sim_time:=true to actually use it instead of the wall clock.
+  - export USE_SIM_TIME=true
+  - source /opt/ros/jazzy/setup.zsh
+  - source ../../../../install/setup.zsh
+  - export ATUIN_FILTER_MODE=session
+windows:
+  - micro_xrce_agent:
+      layout: tiled
+      panes:
+        - MicroXRCEAgent udp4 -p 8888
+  - px4_sitl:
+      layout: tiled
+      panes:
+        # gz_x500_lidar_3d: x500 airframe with both the down-facing LW20 rangefinder (same as
+        # x500_lidar_down) and a tilted 3D scanning lidar ("livox_link"). Boots into PX4_GZ_WORLD
+        # above by the airframe's own default.
+        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500_lidar_3d
+  - clock_bridge:
+      layout: tiled
+      panes:
+        # /world/<world>/clock is the same topic PX4's own gz_bridge already relies on for
+        # lockstep (see the "until gz topic -l ... grep -q '/world/.*/clock'" waits in
+        # px4_sim_2_uav/3_uav's session.yml) -- bridge it to ROS' standard /clock name so every
+        # use_sim_time:=true node below picks up gz's sim clock instead of the wall clock.
+        - until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/clock"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge
+          "/world/$PX4_GZ_WORLD/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+          --ros-args -r "/world/$PX4_GZ_WORLD/clock:=/clock"
+  - px4_healthcheck_fix:
+      layout: tiled
+      panes:
+        - ./fix_arming_healthcheck.sh
+  - px4_custom_params:
+      layout: tiled
+      panes:
+        - ./set_px4_params.sh
+  - px4_sensor_tf:
+      layout: tiled
+      panes:
+        # Static extrinsics from config/sensor_config.yaml, parented on the live "$UAV_NAME/fcu"
+        # frame px4_bridge_node broadcasts -- see publish_sensor_tf.sh. Independent of PX4 booting,
+        # so this can start immediately.
+        - ./publish_sensor_tf.sh
+  - lidar_bridge:
+      layout: tiled
+      panes:
+        # x500_lidar_3d's 3D lidar is not consumed by PX4's own flight stack (unlike the LW20
+        # rangefinder, which GZBridge bridges internally into uORB distance_sensor) -- its point
+        # cloud is a plain Gazebo Transport topic, meant for a companion computer to pick up. Bridge
+        # it into ROS with ros_gz_bridge, remapped to a clean per-UAV topic name; rbl_controller's
+        # pcl_topic (below) points at that same remapped name. The point cloud's header.frame_id
+        # comes through as "livox_link" (the sensor's <gz_frame_id> in model.sdf, unprefixed --
+        # fine for a single vehicle), matching the child frame publish_sensor_tf.sh publishes.
+        - until gz topic -l 2>/dev/null | grep -q
+          "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points"; do
+          sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge
+          "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked"
+          --ros-args -r "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points:=/$UAV_NAME/sensors/lidar_3d/points"
+          -p use_sim_time:=true
+  - px4_bridge:
+      layout: tiled
+      panes:
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=$UAV_NAME/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p use_sim_time:=true
+  - rbl_controller:
+      layout: tiled
+      panes:
+        - export UAV_NAME=$UAV_NAME; ros2 launch rbl_controller_node rbl_controller.launch.py
+          uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
+          pcl_topic:=/$UAV_NAME/sensors/lidar_3d/points
+  - rviz:
+      layout: tiled
+      panes:
+        - rviz2 -d ./px4_sim.rviz --ros-args -p use_sim_time:=true
+  - activation:
+      layout: tiled
+      panes:
+        - echo "Wait for the px4_sitl pane to finish booting and the px4_bridge pane to print
+          'Arming', then run ./activation.sh"; history -s ./activation.sh

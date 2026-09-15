@@ -16,6 +16,7 @@ find_package(rbl_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(tf2_ros REQUIRED)
 # filter_reflective_uavs's exported CMake target links mrs_lib and ouster_sensor_msgs; this
 # package's own code uses neither, but they still need to be find_package()-d here to resolve
 # that exported target.
@@ -37,6 +38,7 @@ ament_target_dependencies(px4_bridge_node
   nav_msgs
   geometry_msgs
   std_srvs
+  tf2_ros
 )
 
 target_link_libraries(px4_bridge_node

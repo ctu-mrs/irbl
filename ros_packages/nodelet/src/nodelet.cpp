@@ -31,6 +31,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 #include <tf2/exceptions.h>
 
 // OCTOMAP
@@ -226,6 +227,8 @@ namespace rbl_controller
                                                                     const std::string& target_frame);
     std::optional<geometry_msgs::msg::Vector3Stamped> transformVector(const geometry_msgs::msg::Vector3Stamped& in,
                                                                        const std::string& target_frame);
+    std::optional<sensor_msgs::msg::PointCloud2> transformCloud(const sensor_msgs::msg::PointCloud2& in,
+                                                                  const std::string& target_frame);
 
     Eigen::Vector3d           pointToEigen(const geometry_msgs::msg::Point& point);
     Eigen::Vector3d           vectorToEigen(const geometry_msgs::msg::Vector3& vec);
@@ -425,6 +428,24 @@ namespace rbl_controller
     }
     catch (const tf2::TransformException& ex) {
       RCLCPP_WARN(node_->get_logger(), "TF: could not transform vector from %s to %s: %s",
+                  in.header.frame_id.c_str(), target_frame.c_str(), ex.what());
+      return std::nullopt;
+    }
+  }  // //}
+
+  std::optional<sensor_msgs::msg::PointCloud2> WrapperRosRBL::transformCloud(  // //{
+      const sensor_msgs::msg::PointCloud2& in,
+      const std::string&                   target_frame)
+  {
+    if (in.header.frame_id == target_frame || in.header.frame_id.empty()) {
+      return in;
+    }
+
+    try {
+      return tf_buffer_->transform(in, target_frame, tf2::durationFromSec(0.1));
+    }
+    catch (const tf2::TransformException& ex) {
+      RCLCPP_WARN(node_->get_logger(), "TF: could not transform point cloud from %s to %s: %s",
                   in.header.frame_id.c_str(), target_frame.c_str(), ex.what());
       return std::nullopt;
     }
@@ -767,9 +788,21 @@ namespace rbl_controller
     }
     else {
       if (sh_pcl_.newMsg()) {
-        auto                            msg = sh_pcl_.getMsg();
+        auto msg = sh_pcl_.getMsg();
+
+        // Unlike the octomap branch above, this used to feed *msg straight into pcl::fromROSMsg
+        // with no transform at all -- harmless as long as pcl_topic was already published in
+        // control_frame (e.g. map_generator's synthetic global cloud), but silently wrong for any
+        // sensor whose cloud arrives in its own moving sensor frame (e.g. a real onboard lidar):
+        // every point's raw sensor-relative (x,y,z) was being treated as if it were already a
+        // control_frame coordinate.
+        auto transformed = transformCloud(*msg, _control_frame_);
+        if (!transformed) {
+          return;
+        }
+
         pcl::PointCloud<pcl::PointXYZI> tmp;
-        pcl::fromROSMsg(*msg, tmp);
+        pcl::fromROSMsg(*transformed, tmp);
         last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
 
         pcl_loaded_ = true;

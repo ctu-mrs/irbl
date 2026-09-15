@@ -34,6 +34,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_sensor_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
@@ -65,6 +66,7 @@ ament_target_dependencies(
   tf2
   tf2_ros
   tf2_geometry_msgs
+  tf2_sensor_msgs
   octomap_msgs
   pcl_conversions
   geometry_msgs

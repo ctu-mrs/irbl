@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pushes the PX4 firmware parameters listed in ../config/custom_config.yaml into the given running
+# Pushes the PX4 firmware parameters listed in config/custom_config.yaml into the given running
 # PX4 SITL instance via `param set`, the same runtime-only mechanism fix_arming_healthcheck.sh uses
 # for NAV_DLL_ACT. This is a runtime `param set` against the given instance, not a permanent edit of
 # any file in this repository or in PX4-Autopilot.

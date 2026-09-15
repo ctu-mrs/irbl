@@ -21,8 +21,10 @@
 
 #include <px4_ros_com/frame_transforms.h>
 
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rbl_msgs/msg/reference_stamped.hpp>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include <Eigen/Geometry>
 
@@ -68,6 +70,13 @@ public:
     const std::string fmu_prefix = px4_ns_.empty() ? "" : ("/" + px4_ns_);
 
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("odometry", rclcpp::QoS(5));
+    // Broadcasts the same control_frame -> "<uav_name>/fcu" transform as the Odometry message
+    // above, as live TF -- a static sensor extrinsic (e.g. published from sensor_config.yaml)
+    // can then be chained onto "<uav_name>/fcu" so tf2 can transform sensor data (a real lidar's
+    // point cloud, mounted rigidly on the vehicle) into control_frame. Nothing else in this stack
+    // published this before, since the only prior pcl_topic source (map_generator) was already in
+    // control_frame and never needed the lookup.
+    tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
     offboard_control_mode_pub_ = create_publisher<px4_msgs::msg::OffboardControlMode>(
         fmu_prefix + "/fmu/in/offboard_control_mode", px4_qos);
@@ -134,6 +143,15 @@ private:
     odom.twist.twist.angular.z = -msg->angular_velocity[2];
 
     odom_pub_->publish(odom);
+
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header             = odom.header;
+    tf_msg.child_frame_id     = odom.child_frame_id;
+    tf_msg.transform.translation.x = odom.pose.pose.position.x;
+    tf_msg.transform.translation.y = odom.pose.pose.position.y;
+    tf_msg.transform.translation.z = odom.pose.pose.position.z;
+    tf_msg.transform.rotation      = odom.pose.pose.orientation;
+    tf_broadcaster_->sendTransform(tf_msg);
 
     have_odom_ = true;
     last_position_enu_ = pos_enu;
@@ -264,6 +282,7 @@ private:
   rclcpp::Subscription<rbl_msgs::msg::ReferenceStamped>::SharedPtr  reference_sub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };
 
 }  // namespace rbl_px4_bridge
