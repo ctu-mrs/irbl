@@ -5,23 +5,26 @@
 #include <pcl/point_types.h>
 
 #include <cstdint>
-#include <vector>
+#include <unordered_set>
 
-// A small, bounded local occupancy map of static obstacles, persisted across cycles -- simpler
-// than octomap and independent of rbl_replanner's own grid. update() marks every point in a live
-// scan as occupied, and carves free space along the ray from the agent to each point (clearing
-// any previously-marked cell that ray passes through before reaching its target), so a since-moved
-// or spurious obstacle doesn't linger forever. The window is fixed-size and only re-anchors (which
-// fully resets it -- the simplest correct bounded-memory behavior) once the agent nears its edge,
-// same "stable, snap-to-lattice" approach used elsewhere in this stack to avoid quantization jitter.
+// A small local occupancy map of static obstacles, persisted across cycles -- simpler than octomap
+// and independent of rbl_replanner's own grid. update() marks every point in a live scan as
+// occupied, and carves free space along the ray from the agent to each point (clearing any
+// previously-marked cell that ray passes through before reaching its target), so a since-moved or
+// spurious obstacle doesn't linger forever. Occupied voxels are keyed by absolute world coordinates
+// (not a re-anchored local window), so there is no fixed "square" boundary that could reject a
+// point that's genuinely within range of the agent -- inclusion is purely "distance to the agent
+// <= max_range", checked fresh every update() call, which also means the far edge fades out
+// gradually as the agent moves instead of the map being wiped in one shot.
 class LocalStaticMap
 {
 public:
   struct Params
   {
     double voxel_size = 0.3;   // [m]
-    double width       = 30.0;  // [m] X/Y extent of the local window
-    double height       = 10.0;  // [m] Z extent of the local window
+    // [m] Any occupied cell farther than this from the *current* agent position is dropped every
+    // update() call, and a live-scan hit farther than this is never added in the first place.
+    double max_range   = 15.0;
   };
 
   explicit LocalStaticMap(const Params& params);
@@ -34,14 +37,9 @@ public:
   pcl::PointCloud<pcl::PointXYZI> getOccupiedCloud() const;
 
 private:
-  Params                params_;
-  int                   nx_, ny_, nz_;
-  std::vector<uint8_t>  occupied_;
-  Eigen::Vector3d       anchor_world_ = Eigen::Vector3d::Zero();
-  bool                  have_anchor_  = false;
+  Params                            params_;
+  std::unordered_set<std::int64_t>  occupied_;
 
-  int             index(int ix, int iy, int iz) const;
-  bool            worldToIdx(const Eigen::Vector3d& p, int& ix, int& iy, int& iz) const;
-  Eigen::Vector3d idxToWorld(int ix, int iy, int iz) const;
-  void            maybeReanchor(const Eigen::Vector3d& agent_pos);
+  std::int64_t    voxelKey(const Eigen::Vector3d& p) const;
+  Eigen::Vector3d keyToWorld(std::int64_t key) const;
 };

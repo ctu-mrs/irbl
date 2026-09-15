@@ -328,8 +328,7 @@ namespace rbl_controller
     {
       LocalStaticMap::Params static_map_params;
       static_map_params.voxel_size = getParam<double>(node_.get(), "static_map.voxel_size", 0.3);
-      static_map_params.width      = getParam<double>(node_.get(), "static_map.width", 30.0);
-      static_map_params.height     = getParam<double>(node_.get(), "static_map.height", 10.0);
+      static_map_params.max_range  = getParam<double>(node_.get(), "static_map.max_range", 15.0);
       static_map_ = std::make_unique<LocalStaticMap>(static_map_params);
     }
 

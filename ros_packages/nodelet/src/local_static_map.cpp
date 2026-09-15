@@ -3,64 +3,57 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+// Packs a 3D voxel index into a single int64 key: each axis biased into [0, 2^21) (supports
+// +-1,048,576 cells, i.e. +-104km at a 0.1m voxel -- far beyond any plausible local map extent)
+// then bit-packed. Absolute (world-fixed) voxel coordinates, not relative to any local origin, so
+// no re-anchoring is ever needed.
+constexpr std::int64_t kOffset = 1 << 20;
+constexpr int          kBits   = 21;
+constexpr std::int64_t kMask   = (std::int64_t{ 1 } << kBits) - 1;
+
+std::int64_t packKey(int ix, int iy, int iz)
+{
+  const std::int64_t x = static_cast<std::int64_t>(ix) + kOffset;
+  const std::int64_t y = static_cast<std::int64_t>(iy) + kOffset;
+  const std::int64_t z = static_cast<std::int64_t>(iz) + kOffset;
+  return (x << (2 * kBits)) | (y << kBits) | z;
+}
+
+void unpackKey(std::int64_t key, int& ix, int& iy, int& iz)
+{
+  iz = static_cast<int>((key & kMask) - kOffset);
+  iy = static_cast<int>(((key >> kBits) & kMask) - kOffset);
+  ix = static_cast<int>(((key >> (2 * kBits)) & kMask) - kOffset);
+}
+}  // namespace
+
 LocalStaticMap::LocalStaticMap(const Params& params) : params_(params)
 {
-  nx_ = std::max(1, static_cast<int>(std::ceil(params_.width / params_.voxel_size)));
-  ny_ = nx_;
-  nz_ = std::max(1, static_cast<int>(std::ceil(params_.height / params_.voxel_size)));
-  occupied_.assign(static_cast<std::size_t>(nx_) * static_cast<std::size_t>(ny_) * static_cast<std::size_t>(nz_), 0);
 }
 
-int LocalStaticMap::index(int ix, int iy, int iz) const
-{
-  return (ix * ny_ + iy) * nz_ + iz;
-}
-
-void LocalStaticMap::maybeReanchor(const Eigen::Vector3d& agent_pos)
-{
-  const double vox               = params_.voxel_size;
-  const double margin_cells      = 3.0;
-  bool         need_new_anchor   = !have_anchor_;
-
-  if (have_anchor_) {
-    const double dx_cells = (agent_pos.x() - anchor_world_.x()) / vox;
-    const double dy_cells = (agent_pos.y() - anchor_world_.y()) / vox;
-    const double dz_cells = (agent_pos.z() - anchor_world_.z()) / vox;
-    if (std::abs(dx_cells) > (nx_ / 2.0 - margin_cells) || std::abs(dy_cells) > (ny_ / 2.0 - margin_cells) ||
-        std::abs(dz_cells) > (nz_ / 2.0 - margin_cells)) {
-      need_new_anchor = true;
-    }
-  }
-
-  if (need_new_anchor) {
-    anchor_world_ = Eigen::Vector3d(std::round(agent_pos.x() / vox) * vox, std::round(agent_pos.y() / vox) * vox,
-                                    std::round(agent_pos.z() / vox) * vox);
-    have_anchor_  = true;
-    std::fill(occupied_.begin(), occupied_.end(), 0);
-  }
-}
-
-bool LocalStaticMap::worldToIdx(const Eigen::Vector3d& p, int& ix, int& iy, int& iz) const
+std::int64_t LocalStaticMap::voxelKey(const Eigen::Vector3d& p) const
 {
   const double vox = params_.voxel_size;
-  ix                = static_cast<int>(std::round((p.x() - anchor_world_.x()) / vox)) + nx_ / 2;
-  iy                = static_cast<int>(std::round((p.y() - anchor_world_.y()) / vox)) + ny_ / 2;
-  iz                = static_cast<int>(std::round((p.z() - anchor_world_.z()) / vox)) + nz_ / 2;
-  return ix >= 0 && ix < nx_ && iy >= 0 && iy < ny_ && iz >= 0 && iz < nz_;
+  const int    ix  = static_cast<int>(std::round(p.x() / vox));
+  const int    iy  = static_cast<int>(std::round(p.y() / vox));
+  const int    iz  = static_cast<int>(std::round(p.z() / vox));
+  return packKey(ix, iy, iz);
 }
 
-Eigen::Vector3d LocalStaticMap::idxToWorld(int ix, int iy, int iz) const
+Eigen::Vector3d LocalStaticMap::keyToWorld(std::int64_t key) const
 {
+  int ix, iy, iz;
+  unpackKey(key, ix, iy, iz);
   const double vox = params_.voxel_size;
-  return Eigen::Vector3d((ix - nx_ / 2) * vox + anchor_world_.x(), (iy - ny_ / 2) * vox + anchor_world_.y(),
-                         (iz - nz_ / 2) * vox + anchor_world_.z());
+  return Eigen::Vector3d(ix * vox, iy * vox, iz * vox);
 }
 
 void LocalStaticMap::update(const pcl::PointCloud<pcl::PointXYZI>& live_cloud, const Eigen::Vector3d& agent_pos)
 {
-  maybeReanchor(agent_pos);
-
-  const double vox = params_.voxel_size;
+  const double vox           = params_.voxel_size;
+  const double max_range_sq  = params_.max_range * params_.max_range;
 
   for (const auto& pt : live_cloud.points) {
     if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
@@ -80,15 +73,25 @@ void LocalStaticMap::update(const pcl::PointCloud<pcl::PointXYZI>& live_cloud, c
     for (int s = 0; s < steps; ++s) {
       const double           t = static_cast<double>(s) / steps;
       const Eigen::Vector3d  p = agent_pos + ray * t;
-      int                     ix, iy, iz;
-      if (worldToIdx(p, ix, iy, iz)) {
-        occupied_[static_cast<std::size_t>(index(ix, iy, iz))] = 0;
-      }
+      occupied_.erase(voxelKey(p));
     }
 
-    int ix, iy, iz;
-    if (worldToIdx(target, ix, iy, iz)) {
-      occupied_[static_cast<std::size_t>(index(ix, iy, iz))] = 1;
+    // Only add the hit itself if it's within max_range -- no point persisting something we're
+    // about to fade out on the very same call anyway.
+    if (dist <= params_.max_range) {
+      occupied_.insert(voxelKey(target));
+    }
+  }
+
+  // Gradual fade: drop any occupied cell that has fallen farther than max_range from the agent's
+  // *current* position, every call.
+  for (auto it = occupied_.begin(); it != occupied_.end();) {
+    const Eigen::Vector3d p = keyToWorld(*it);
+    if ((p - agent_pos).squaredNorm() > max_range_sq) {
+      it = occupied_.erase(it);
+    }
+    else {
+      ++it;
     }
   }
 }
@@ -96,21 +99,16 @@ void LocalStaticMap::update(const pcl::PointCloud<pcl::PointXYZI>& live_cloud, c
 pcl::PointCloud<pcl::PointXYZI> LocalStaticMap::getOccupiedCloud() const
 {
   pcl::PointCloud<pcl::PointXYZI> cloud;
+  cloud.points.reserve(occupied_.size());
 
-  for (int ix = 0; ix < nx_; ++ix) {
-    for (int iy = 0; iy < ny_; ++iy) {
-      for (int iz = 0; iz < nz_; ++iz) {
-        if (occupied_[static_cast<std::size_t>(index(ix, iy, iz))]) {
-          const Eigen::Vector3d p = idxToWorld(ix, iy, iz);
-          pcl::PointXYZI         pt;
-          pt.x         = static_cast<float>(p.x());
-          pt.y         = static_cast<float>(p.y());
-          pt.z         = static_cast<float>(p.z());
-          pt.intensity = 0.0f;
-          cloud.points.push_back(pt);
-        }
-      }
-    }
+  for (const auto key : occupied_) {
+    const Eigen::Vector3d p = keyToWorld(key);
+    pcl::PointXYZI         pt;
+    pt.x         = static_cast<float>(p.x());
+    pt.y         = static_cast<float>(p.y());
+    pt.z         = static_cast<float>(p.z());
+    pt.intensity = 0.0f;
+    cloud.points.push_back(pt);
   }
 
   cloud.width    = static_cast<std::uint32_t>(cloud.points.size());
