@@ -52,3 +52,14 @@
 
     replanner:
       inflation_bonus: 0.3
+
+    # Bounded local map of static obstacles (see nodelet/src/local_static_map.h) merged into the
+    # live point cloud before it reaches rbl_controller_ at all -- feeds both the reactive CIRI
+    # partition and the replanner's grid from one place. Persists obstacle hits across cycles
+    # (unlike the raw per-scan cloud) and carves them back out via free-space ray-casting once a
+    # later scan sees through where they used to be, so it doesn't accumulate stale/moved obstacles
+    # forever.
+    static_map:
+      voxel_size: 0.3 # [m]
+      width: 30.0      # [m] X/Y extent of the local window, centered near the agent
+      height: 10.0     # [m] Z extent of the local window

@@ -57,6 +57,7 @@ add_library(${RBL_CONTROLLER_NODE_TARGET} SHARED)
 target_sources(${RBL_CONTROLLER_NODE_TARGET}
   PRIVATE
     "src/nodelet.cpp"
+    "src/local_static_map.cpp"
 )
 
 ament_target_dependencies(

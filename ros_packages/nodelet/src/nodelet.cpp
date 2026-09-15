@@ -1,6 +1,7 @@
 // CUSTOM
 #include <filter_reflective_uavs/msg/pose_velocity_array.hpp>
 #include "rbl_controller_core/rbl_controller.h"
+#include "local_static_map.h"
 
 // Local message/service definitions (replacing mrs_msgs -- no MRS dependency of any kind)
 #include <octomap_msgs/conversions.h>
@@ -49,6 +50,7 @@
 
 // Standard CPP libs
 #include <cmath>
+#include <memory>
 #include <string>
 #include <optional>
 
@@ -122,6 +124,14 @@ namespace rbl_controller
     std::vector<State>                               group_states_;
     std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> last_obstacle_cloud_;
     bool                                             pcl_loaded_ = false;
+
+    // Bounded local map of static obstacles, merged into the live cloud before it ever reaches
+    // rbl_controller_ -- see cbTmSetRef()'s pcl branch. Feeds both the reactive CIRI partition and
+    // (via RBLController::setPCL()'s cloud_, which the replanner reads too) the replanner's own
+    // grid, from this one merge point.
+    std::unique_ptr<LocalStaticMap> static_map_;
+    Eigen::Vector3d                 agent_pos_world_     = Eigen::Vector3d::Zero();
+    bool                             have_agent_pos_world_ = false;
 
     bool is_initialized_ = false;
     bool is_activated_   = false;
@@ -314,6 +324,14 @@ namespace rbl_controller
     rbl_params_.add_estimates_as_voxels =
         getParam<bool>(node_.get(), "rbl_controller.add_estimates_as_voxels", true);
     rbl_params_.inflation_bonus = getParam<double>(node_.get(), "replanner.inflation_bonus", 0.2);
+
+    {
+      LocalStaticMap::Params static_map_params;
+      static_map_params.voxel_size = getParam<double>(node_.get(), "static_map.voxel_size", 0.3);
+      static_map_params.width      = getParam<double>(node_.get(), "static_map.width", 30.0);
+      static_map_params.height     = getParam<double>(node_.get(), "static_map.height", 10.0);
+      static_map_ = std::make_unique<LocalStaticMap>(static_map_params);
+    }
 
     // | ----------------------- subscribers ---------------------- |
 
@@ -595,6 +613,8 @@ namespace rbl_controller
         std::scoped_lock lck(mtx_rbl_);
         rbl_controller_->setCurrentPosition(pointToEigen(res.value().point));
       }
+      agent_pos_world_      = pointToEigen(res.value().point);
+      have_agent_pos_world_ = true;
       RCLCPP_INFO_ONCE(node_->get_logger(), "Setted cur position to rbl");
 
       geometry_msgs::msg::Vector3Stamped tmp_vel;
@@ -803,6 +823,17 @@ namespace rbl_controller
 
         pcl::PointCloud<pcl::PointXYZI> tmp;
         pcl::fromROSMsg(*transformed, tmp);
+
+        // Merge in the bounded local static-obstacle map (see LocalStaticMap) before this cloud
+        // reaches rbl_controller_ at all -- both the reactive CIRI partition and the replanner's
+        // grid read from the same setPCL()'d cloud downstream, so this one merge point covers
+        // both. Needs a live agent position for the ray origin (free-space carving), so skip until
+        // odometry has actually arrived at least once.
+        if (have_agent_pos_world_) {
+          static_map_->update(tmp, agent_pos_world_);
+          tmp += static_map_->getOccupiedCloud();
+        }
+
         last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
 
         pcl_loaded_ = true;
