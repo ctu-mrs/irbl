@@ -19,6 +19,11 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     replanner_params.z_min              = params.z_min;
     replanner_params.z_max              = params.z_max;
     replanner_params.progress_threshold = params.replan_progress_threshold;
+    replanner_params.direction_consistency_weight = params.direction_consistency_weight;
+    replanner_params.direction_decay_meters       = params.direction_decay_meters;
+    replanner_params.path_deviation_distance      = params.path_deviation_distance;
+    replanner_params.path_deviation_weight        = params.path_deviation_weight;
+    replanner_params.forward_lock_half_angle_deg  = params.forward_lock_half_angle_deg;
 
     rbl_replanner_ = std::make_shared<RBLReplanner>(replanner_params);
   }
@@ -201,12 +206,14 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   Eigen::Vector3d                                   agent_pos_snapshot;
   Eigen::Vector3d                                   goal_snapshot;
   double                                             altitude_snapshot;
+  Eigen::Vector3d                                   rpy_snapshot;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_snapshot;
   {
     std::lock_guard<std::mutex> lock(input_mutex_);
     agent_pos_snapshot = agent_pos_;
     goal_snapshot       = goal_;
     altitude_snapshot   = altitude_;
+    rpy_snapshot         = rpy_;
     cloud_snapshot       = cloud_;
   }
 
@@ -263,10 +270,14 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
       // reintroduce the same torn-read hazard input_mutex_ is meant to close.
       replanner_future_ =
           std::async(std::launch::async,
-                     [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, cloud_snapshot]() {
+                     [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, rpy_snapshot, cloud_snapshot]() {
         rbl_replanner_->setAltitude(altitude_snapshot);
         rbl_replanner_->setCurrentPosition(agent_pos_snapshot);
         rbl_replanner_->setGoal(goal_snapshot);
+        // Real, measured heading (yaw) -- grounds the replanner's direction-consistency bias and
+        // forward-lock cone in the UAV's actual orientation rather than only the planner's own
+        // prior output (see RBLReplanner::setCurrentHeading()'s doc comment).
+        rbl_replanner_->setCurrentHeading(Eigen::Vector3d(std::cos(rpy_snapshot.z()), std::sin(rpy_snapshot.z()), 0.0));
         rbl_replanner_->setPCL(cloud_snapshot);
 
         auto new_path = rbl_replanner_->plan();
@@ -1628,17 +1639,32 @@ void RBLController::determineNextRef(rbl_msgs::msg::Reference&                p_
       p_ref.position.z = agent_pos[2];
     }
 
-    // if ((c1 - c1_full).norm() < 0.5) {
-    //   desired_heading = std::atan2(c1[1] - agent_pos[1], c1[0] - agent_pos[0]);
-    // }
-    // else {
-      desired_heading = std::atan2(c1_full[1] - agent_pos[1], c1_full[0] - agent_pos[0]);
-    // }
-    p_ref.heading = desired_heading;
+    // Guard atan2() against a near-zero agent->c1_full vector: measured via a logged sim flight,
+    // this was the dominant source of commanded-heading chatter (far more than anything in the
+    // replanner's own A* search) -- once c1_full collapses onto agent_pos (e.g. near the goal, or
+    // whenever the reactive CIRI centroid otherwise sits right on top of the UAV), its direction is
+    // just position noise, and atan2() of a near-zero vector swings wildly tick to tick. Below
+    // kMinHeadingDist, keep commanding whatever heading was last actually reliable instead of
+    // chasing that noise.
+    constexpr double kMinHeadingDist = 0.3;
+    const double       dx_c1_full     = c1_full[0] - agent_pos[0];
+    const double       dy_c1_full     = c1_full[1] - agent_pos[1];
+    if (std::hypot(dx_c1_full, dy_c1_full) >= kMinHeadingDist) {
+      desired_heading        = std::atan2(dy_c1_full, dx_c1_full);
+      last_desired_heading_  = desired_heading;
+      have_desired_heading_  = true;
+    }
+    else {
+      desired_heading = have_desired_heading_ ? last_desired_heading_ : rpy[2];
+    }
 
-    if ((agent_pos - goal).norm() <= 0.3) {  // Arived at goal pos
-      // p_ref.heading = rpy[2]; //keep the same heading
-      p_ref.heading = desired_heading;
+    if ((agent_pos - goal).norm() <= 0.3) {  // Arrived at goal pos: hold the current actual heading
+      // instead of still chasing c1_full -- this was already the evident intent of the dead
+      // `p_ref.heading = rpy[2]; //keep the same heading` line this replaces, just never applied
+      // (the line below it unconditionally overwrote it with desired_heading regardless).
+      p_ref.heading          = rpy[2];
+      last_desired_heading_  = rpy[2];
+      have_desired_heading_  = true;
       std::cout << "[RBLController]: Arrived at goal pos" << std::endl;  // keep the same heading
     }
     else {

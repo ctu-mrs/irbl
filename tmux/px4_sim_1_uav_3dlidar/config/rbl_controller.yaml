@@ -51,9 +51,14 @@
       add_estimates_as_voxels: true
 
     replanner:
-      inflation_bonus: 0.2
+      inflation_bonus: 0.0
       replanner_freq: 5.0 # [Hz] ceiling on how often a fresh full replan is even considered
       replan_progress_threshold: 0.5 # force a fresh replan once this fraction of the current path is covered
+      direction_consistency_weight: 600.0 # penalty weight for a fresh plan's start heading diverging from the previous plan's; higher = heading changes discouraged more heavily
+      direction_decay_meters: 80.0 # [m] distance over which the above penalty fades out (e^-1 at this distance) -- kept well beyond this scenario's local grid half-width (map_width=30 in rbl_controller_core's ReplannerParams construction) so it stays meaningfully active (>=50% strength) across the whole visible horizon, not just the first ~10-15m of a full replan. Extending path_deviation_distance/weight this far too (instead of just this term) was tried and made things measurably worse -- see path_deviation_weight's comment.
+      path_deviation_distance: 4.0 # [m] near-agent distance over which each edge's heading is additionally biased towards the previous path's own local heading
+      path_deviation_weight: 25.0 # penalty weight for the near-agent heading bias above. Tried extending this term's distance/weight out to the full horizon (40m/40) instead of relying on direction_consistency_weight/direction_decay_meters for the far field -- measurably worse (more, not fewer, big heading jumps, including new ones near the agent): both penalties are added only into A*'s per-node f-score, not accumulated into g, so making the *local-curve-matching* term dominant over a large area turns frontier-expansion order chaotic (tiny cloud/timing differences between replans flip which locked-in route wins) rather than consistent. direction_consistency_weight's single fixed-bearing reference is far more stable to push hard over a long distance; keep this term scoped to the near field only.
+      forward_lock_half_angle_deg: 100.0 # [deg] hard-excludes the fresh plan's very first step from outside this cone around the UAV's real current heading (see replanner.h)
 
     # Bounded local map of static obstacles (see nodelet/src/local_static_map.h) merged into the
     # live point cloud before it reaches rbl_controller_ at all -- feeds both the reactive CIRI

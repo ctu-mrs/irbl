@@ -327,6 +327,16 @@ namespace rbl_controller
     rbl_params_.replanner_freq  = getParam<double>(node_.get(), "replanner.replanner_freq", 0.5);
     rbl_params_.replan_progress_threshold =
         getParam<double>(node_.get(), "replanner.replan_progress_threshold", 0.5);
+    rbl_params_.direction_consistency_weight =
+        getParam<double>(node_.get(), "replanner.direction_consistency_weight", 20.0);
+    rbl_params_.direction_decay_meters =
+        getParam<double>(node_.get(), "replanner.direction_decay_meters", 18.0);
+    rbl_params_.path_deviation_distance =
+        getParam<double>(node_.get(), "replanner.path_deviation_distance", 4.0);
+    rbl_params_.path_deviation_weight =
+        getParam<double>(node_.get(), "replanner.path_deviation_weight", 25.0);
+    rbl_params_.forward_lock_half_angle_deg =
+        getParam<double>(node_.get(), "replanner.forward_lock_half_angle_deg", 100.0);
 
     {
       LocalStaticMap::Params static_map_params;

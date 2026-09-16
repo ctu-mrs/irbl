@@ -106,6 +106,18 @@ struct RBLParams {
   // length the agent must cover before RBLReplanner::plan() abandons cheap advance-and-validate and
   // runs a full A* search instead, so the local horizon keeps being pushed out towards the goal.
   double                                replan_progress_threshold     = 0.5;
+  // Forwarded to ReplannerParams::direction_consistency_weight -- see that field's doc comment in
+  // replanner.h for what it does. Exposed here (rather than left at the struct default) so it can
+  // be tuned per-scenario from rbl_controller.yaml without a rebuild.
+  double                                direction_consistency_weight  = 20.0;
+  // Forwarded to ReplannerParams::direction_decay_meters.
+  double                                direction_decay_meters        = 18.0;
+  // Forwarded to ReplannerParams::path_deviation_distance.
+  double                                path_deviation_distance       = 4.0;
+  // Forwarded to ReplannerParams::path_deviation_weight.
+  double                                path_deviation_weight         = 25.0;
+  // Forwarded to ReplannerParams::forward_lock_half_angle_deg.
+  double                                forward_lock_half_angle_deg   = 100.0;
     bool downsample_pcl = false;
 };
 
@@ -169,6 +181,16 @@ private:
   Eigen::Vector3d                                           rpy_; 
   Eigen::Vector3d                                           c1_= Eigen::Vector3d::Zero();
   Eigen::Vector3d                                           c1_full_= Eigen::Vector3d::Zero();
+  // Last commanded reference heading (see determineNextRef()) -- held onto and reused whenever
+  // agent_pos-to-c1_full is too short to give atan2() a reliable direction (e.g. once the UAV has
+  // arrived at/near the goal, or c1_full otherwise collapses onto the agent), instead of feeding
+  // atan2() a near-zero vector whose angle is dominated by tick-to-tick position noise. Without
+  // this, the commanded heading was found (empirically, via a logged sim flight -- see the
+  // 'chattering' investigation this field is part of) to swing wildly, sometimes >150 degrees in
+  // under 0.2s, purely from that noise -- a much bigger source of heading chatter than anything in
+  // the replanner's own A* search.
+  double                                                    last_desired_heading_ = 0.0;
+  bool                                                       have_desired_heading_ = false;
   Eigen::Vector3d                                           c2_;
   Eigen::Vector3d                                           c1_no_rot_;
   std::vector<State>                              group_states_;

@@ -60,6 +60,16 @@ void RBLReplanner::setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>
   cloud_ = cloud;
 }  // //}
 
+void RBLReplanner::setCurrentHeading(const Eigen::Vector3d& heading)  // //{
+{
+  Eigen::Vector3d flat = heading;
+  flat.z()              = 0.0;
+  if (flat.norm() > 1e-6) {
+    agent_heading_      = flat.normalized();
+    have_agent_heading_ = true;
+  }
+}  // //}
+
 void RBLReplanner::setZMin(double z_min)  // //{
 {
   z_min_ = z_min;
@@ -135,7 +145,12 @@ std::vector<Eigen::Vector3d> RBLReplanner::plan()  // //{
     if (dir.norm() > 1e-6) {
       const Eigen::Vector3d new_dir = dir.normalized();
       if (have_last_plan_direction_) {
-        constexpr double       kEmaAlpha = 0.5;
+        // Low alpha on purpose: at 0.5 a single transient A* tie-break flip already moves the
+        // reference heading halfway to the new direction, which is itself most of the way to
+        // becoming next plan's bias target -- letting one flip beget another instead of damping
+        // it out. 0.2 makes the reference heading track the *sustained* direction of travel and
+        // stay put through a one-off flip.
+        constexpr double       kEmaAlpha = 0.2;
         const Eigen::Vector3d blended    = (1.0 - kEmaAlpha) * last_plan_direction_ + kEmaAlpha * new_dir;
         last_plan_direction_             = blended.norm() > 1e-6 ? blended.normalized() : new_dir;
       }
@@ -569,6 +584,13 @@ RBLReplanner::AStarPlan(const std::tuple<int,
   // Reference point/decay scale for the direction-consistency bias below -- computed once since
   // it's the same for every child expanded during this whole search.
   const Eigen::Vector3d start_world = gridIdxToWorldCoords(start_node->position);
+  // Reference heading for direction_penalty below -- the UAV's real measured heading when known
+  // (see setCurrentHeading()), otherwise the previous plan's own start heading as a fallback (e.g.
+  // before the first odometry-derived heading has arrived). Computed once: same for every child
+  // expanded during this whole search.
+  const bool             have_direction_ref = have_agent_heading_ || have_last_plan_direction_;
+  const Eigen::Vector3d  direction_ref      = have_agent_heading_ ? agent_heading_ : last_plan_direction_;
+  const double            forward_lock_cos   = std::cos(params_.forward_lock_half_angle_deg * M_PI / 180.0);
 
   std::priority_queue<Node*, std::vector<Node*>, CompareNode> open_list;
   VoxelGrid                                                   closed_voxels(_X_, _Y_, _Z_);
@@ -653,6 +675,27 @@ RBLReplanner::AStarPlan(const std::tuple<int,
       children.push_back(new_node);
     }
 
+    // Forward lock: on the start node's own first expansion only, hard-exclude any neighbor whose
+    // direction from the start falls outside the forward_lock_half_angle_deg cone around the UAV's
+    // real current heading -- see ReplannerParams::forward_lock_half_angle_deg for the full
+    // rationale. current_node->parent == nullptr uniquely identifies start_node (every other node
+    // is created with a non-null parent above), so this never fires again deeper into the search.
+    // Skipped (not applied) when it would leave zero candidates, so a boxed-in agent can still find
+    // a path out the only side available instead of AStarPlan() reporting none found.
+    if (current_node->parent == nullptr && have_agent_heading_ && !children.empty()) {
+      std::vector<Node*> forward_children;
+      forward_children.reserve(children.size());
+      for (Node* c : children) {
+        const Eigen::Vector3d dir = gridIdxToWorldCoords(c->position) - start_world;
+        if (dir.norm() > 1e-9 && dir.normalized().dot(agent_heading_) >= forward_lock_cos) {
+          forward_children.push_back(c);
+        }
+      }
+      if (!forward_children.empty()) {
+        children = std::move(forward_children);
+      }
+    }
+
     for (Node* child : children) {
       if (closed_voxels.at(child->position))
         continue;
@@ -667,12 +710,13 @@ RBLReplanner::AStarPlan(const std::tuple<int,
       const double           dist_from_start = (child_world - start_world).norm();
 
       // direction_penalty: biases the plan's start towards continuing in roughly the same *heading*
-      // as the previous plan's start. Fades out over direction_decay_meters, so only the near-agent
-      // portion of the route is nudged -- further out is free to go wherever the goal/obstacles
-      // actually require.
+      // as direction_ref (the UAV's real current heading when known, else the previous plan's own
+      // start heading). Fades out over direction_decay_meters, so only the near-agent portion of
+      // the route is nudged -- further out is free to go wherever the goal/obstacles actually
+      // require.
       double direction_penalty = 0.0;
-      if (have_last_plan_direction_ && dist_from_start > 1e-6) {
-        const double cos_angle           = ((child_world - start_world) / dist_from_start).dot(last_plan_direction_);
+      if (have_direction_ref && dist_from_start > 1e-6) {
+        const double cos_angle           = ((child_world - start_world) / dist_from_start).dot(direction_ref);
         const double angular_misalignment = 1.0 - cos_angle;  // 0 aligned .. 2 opposite
         const double fade                 = std::exp(-dist_from_start / params_.direction_decay_meters);
         direction_penalty                 = direction_consistency_weight_ * angular_misalignment * fade;

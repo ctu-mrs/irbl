@@ -90,19 +90,31 @@ struct ReplannerParams {
   double                                                    z_min                 = 0.5;
   double                                                    z_max                 = 10.0;
   // Weight on the direction-consistency cost added to A*'s edge cost (see AStarPlan()) -- biases
-  // the *start* of each new plan towards continuing in roughly the same heading as the previous
-  // plan's start, fading out with distance so only the near-agent portion is affected. Without
-  // this, a plan recomputed from scratch every cycle has no reason to prefer one of two
-  // near-equal-cost routes over the other, so the agent's heading can flip-flop between them every
-  // replan; this is what damps that. Adjustable at runtime via setDirectionConsistencyWeight().
-  double                                                    direction_consistency_weight = 5.0;
+  // the *start* of each new plan towards continuing in roughly the same heading as the UAV's own
+  // real, measured heading (see setCurrentHeading()) -- or, until the first heading reading
+  // arrives, the previous plan's own start heading as a fallback -- fading out with distance so
+  // only the near-agent portion is affected. Without this, a plan recomputed from scratch every
+  // cycle has no reason to prefer one of two near-equal-cost routes over the other, so the agent's
+  // heading can flip-flop between them every replan; this is what damps that. Anchoring on the
+  // real measured heading rather than only the previous plan's own (self-referential) output
+  // matters: a bias that only ever compares a new plan against the planner's own last plan can
+  // still drift/oscillate together with it, whereas the vehicle's actual heading is an independent
+  // ground truth that cannot itself flip-flop from one replan to the next. Set high (well above
+  // what a few meters of extra route length would cost) because in practice the UAV
+  // reversing/zig-zagging its heading is worse than taking a mildly longer path -- a heading
+  // change should only win out when the alternative is meaningfully shorter or an obstacle
+  // actually forces it, not on a near-tie. Adjustable at runtime via
+  // setDirectionConsistencyWeight().
+  double                                                    direction_consistency_weight = 20.0;
   // [m] Distance over which the direction-consistency bias fades out (see AStarPlan()) -- e^-1 at
   // this distance from the plan's start. Now that full A* searches are the exception rather than
   // happening every tick (see plan()'s doc comment), each one covers a much longer, largely-fixed
   // horizon; a decay distance shorter than that horizon leaves the far portion of the route free to
   // flip to a different-but-equally-valid option on the next full replan with no bias pulling it
-  // back, which reads as the whole path (not just its start) occasionally jumping sideways.
-  double                                                    direction_decay_meters = 10.0;
+  // back, which reads as the whole path (not just its start) occasionally jumping sideways. Set
+  // close to the local grid's own half-width (map_width/2) so the bias stays meaningfully active
+  // across essentially the whole visible horizon rather than fading out well before it.
+  double                                                    direction_decay_meters = 18.0;
   // [m] How far into a fresh full A* search (from its start) the path_deviation_weight cost below
   // stays active. Deliberately short and separate from direction_decay_meters: this term follows
   // the previous plan's *local heading at that same distance along it* (see
@@ -110,13 +122,31 @@ struct ReplannerParams {
   // direction_penalty's single fixed initial bearing -- so a full replan doesn't yank the
   // near-agent portion of the path sideways even when the previous route remains perfectly valid
   // there. direction_decay_meters/consistency handles the (weaker, single-bearing) bias further out.
-  double                                                    path_deviation_distance = 2.0;
+  double                                                    path_deviation_distance = 4.0;
   // Weight on angular misalignment (0 aligned .. 2 opposite, same scale as
   // direction_consistency_weight's term) between a candidate edge's own heading and the previous
   // plan's local heading at that point (see path_deviation_distance above), within
   // path_deviation_distance of the search start. Strong enough to keep the near-agent heading
-  // stable across a full replan, but still soft, so it never overrides an actual obstacle.
-  double                                                    path_deviation_weight = 10.0;
+  // stable across a full replan, but still soft, so it never overrides an actual obstacle. Kept
+  // above direction_consistency_weight since this term covers the portion of the route closest to
+  // the agent, where a heading reversal is both the most physically disruptive and the most
+  // visible as "flip-flopping".
+  double                                                    path_deviation_weight = 25.0;
+  // [deg] Half-angle, measured from the UAV's real current heading (see setCurrentHeading()), of
+  // the cone A* is allowed to take its very first step into. Any of the start node's neighbors
+  // whose direction lies outside this cone (i.e. more than this many degrees from straight ahead)
+  // is hard-excluded from that first expansion -- not just soft-penalized like
+  // direction_consistency_weight/path_deviation_weight above -- so the immediate next waypoint is
+  // always somewhere in front of the UAV rather than beside or behind it, matching what a
+  // forward-facing, limited-FOV sensor (see RBLParams::limited_fov/lidar_fov) can actually see.
+  // Only applied to the start node's own first expansion (not deeper into the search) and only
+  // when at least one neighbor still satisfies it -- if every reachable neighbor happens to fall
+  // outside the cone (e.g. boxed in on every forward side), the exclusion is skipped for that
+  // expansion instead of reporting no path found, so this can never turn a solvable planning
+  // problem into an unsolvable one. 100 degrees excludes only the roughly-rearward third of
+  // directions (the ones behind the UAV) while still leaving most sideways motion open. No effect
+  // until setCurrentHeading() has been called at least once.
+  double                                                    forward_lock_half_angle_deg = 100.0;
   // Fraction of the *current* path's remaining arc length the agent must cover before plan()
   // abandons the cheap advance-and-validate path (see plan()) and runs a full A* search instead --
   // keeps the local horizon being pushed out towards the goal even when nothing is blocking the
@@ -145,6 +175,15 @@ public:
   void setCurrentPosition(const Eigen::Vector3d& point);
   void setGoal(const Eigen::Vector3d& point);
   void setAltitude(const double& alt);
+  // The UAV's real, measured heading (e.g. from odometry yaw) as a direction vector -- need not be
+  // normalized or purely horizontal, but only its projection onto the XY plane is used (see
+  // AStarPlan()); a near-zero XY component (e.g. a heading vector that is all Z) is treated as "no
+  // heading" for that call and leaves the previously-set heading (or, before the first call, the
+  // previous-plan-direction fallback) in effect. This is what grounds the direction-consistency
+  // bias and the forward-lock cone (see ReplannerParams::direction_consistency_weight and
+  // forward_lock_half_angle_deg) in the vehicle's actual physical orientation instead of only the
+  // planner's own prior output. Expected to be called once per replan cycle, before plan().
+  void setCurrentHeading(const Eigen::Vector3d& heading);
   void setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud);
   // Adjusts the altitude band (see ReplannerParams::z_min/z_max) at runtime.
   void setZMin(double z_min);
@@ -201,6 +240,11 @@ private:
   // single transient A* tie-break flip doesn't itself become the next plan's bias target.
   Eigen::Vector3d                                           last_plan_direction_ = Eigen::Vector3d::Zero();
   bool                                                       have_last_plan_direction_ = false;
+  // UAV's real, measured heading (unit vector, XY-only -- see setCurrentHeading()), used in place
+  // of last_plan_direction_ above whenever available: an independent ground-truth reference that
+  // cannot itself drift/flip-flop the way a bias derived from the planner's own prior output can.
+  Eigen::Vector3d                                           agent_heading_ = Eigen::Vector3d::Zero();
+  bool                                                       have_agent_heading_ = false;
   Eigen::Vector3d                                           agent_pos_;
   Eigen::Vector3d                                           goal_;
   // True from setGoal() until the next plan() that actually observes it -- forces that plan() to
