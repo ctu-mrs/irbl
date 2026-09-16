@@ -10,8 +10,6 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     replanner_params.voxel_size         = params.voxel_size;
     replanner_params.map_width          = 30.0;
     replanner_params.map_height         = 10.0;
-    replanner_params.weight_safety      = 1.0;
-    replanner_params.weight_deviation   = 100.0;
     replanner_params.inflation_bonus    = params.inflation_bonus;
     replanner_params.replanner_vox_size = 0.3;
     replanner_params.replanner_freq     = params.replanner_freq;
@@ -20,6 +18,7 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     // band would then not actually match the rest of the controller's.
     replanner_params.z_min              = params.z_min;
     replanner_params.z_max              = params.z_max;
+    replanner_params.progress_threshold = params.replan_progress_threshold;
 
     rbl_replanner_ = std::make_shared<RBLReplanner>(replanner_params);
   }
@@ -34,6 +33,7 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
 
 void RBLController::setCurrentPosition(const Eigen::Vector3d& point)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   agent_pos_ = point;
   if (!params_.use_garmin_alt) {
     altitude_ = agent_pos_.z();
@@ -42,16 +42,19 @@ void RBLController::setCurrentPosition(const Eigen::Vector3d& point)  // //{
 
 void RBLController::setCurrentVelocity(const Eigen::Vector3d& point)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   agent_vel_ = point;
 }  // //}
 
 void RBLController::setGroupStates(const std::vector<State>& states)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   group_states_ = states;
 }  // //}
 
 void RBLController::setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   cloud_ = cloud;
 }  // //}
    //
@@ -63,6 +66,7 @@ void RBLController::setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>
    
 void RBLController::setGoal(const Eigen::Vector3d& point)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   goal_        = point;
   destination_ = point;
   ph_          = 0.0;
@@ -76,11 +80,13 @@ void RBLController::setBetaD(double beta)
 
 void RBLController::setAltitude(const double& alt)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   altitude_ = alt;
 }  // //}
 
 void RBLController::setRollPitchYaw(const Eigen::Vector3d& rpy)  // //{
 {
+  std::lock_guard<std::mutex> lock(input_mutex_);
   rpy_ = rpy;
 }  // //}
 
@@ -185,10 +191,33 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   // "plane count exceeded limit" warning under a dense scan. cloud_obs_ stays commented out: it's
   // separate, unfinished work-in-progress from the same commit and is never assigned anywhere, so
   // calling getGroundCleanCloud() on it would dereference a null cloud.
-  cloud_ = getGroundCleanCloud(cloud_, agent_pos_, altitude_);
+  //
+  // agent_pos_/altitude_/cloud_/goal_ are written by the odometry/altitude/pointcloud subscription
+  // callbacks, which run in a different callback group (and therefore a different thread, under the
+  // multi-threaded component container this node is loaded into) than this function. Snapshotting
+  // them together under input_mutex_ -- instead of reading the members directly further down -- is
+  // what prevents the replanner from ever seeing a torn/inconsistent agent position relative to the
+  // cloud it grids (see input_mutex_'s doc comment in the header).
+  Eigen::Vector3d                                   agent_pos_snapshot;
+  Eigen::Vector3d                                   goal_snapshot;
+  double                                             altitude_snapshot;
+  std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_snapshot;
+  {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    agent_pos_snapshot = agent_pos_;
+    goal_snapshot       = goal_;
+    altitude_snapshot   = altitude_;
+    cloud_snapshot       = cloud_;
+  }
+
+  cloud_snapshot = getGroundCleanCloud(cloud_snapshot, agent_pos_snapshot, altitude_snapshot);
   // cloud_obs_ = getGroundCleanCloud(cloud_obs_, agent_pos_, altitude_);
-  if (!cloud_) {
+  if (!cloud_snapshot) {
     return std::nullopt;
+  }
+  {
+    std::lock_guard<std::mutex> lock(input_mutex_);
+    cloud_ = cloud_snapshot;
   }
 
   if (params_.replanner) {
@@ -216,18 +245,29 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
     // that softer margin (it plans as close as the margin allows), so using it here would trigger
     // an "emergency" replan on nearly every ordinary plan. The periodic replanTimer() already
     // handles keeping the path away from the soft margin; this is only for a true emergency.
-    const bool path_blocked = RBLReplanner::pathInCollision(path_, cloud_, params_.encumbrance);
+    const bool path_blocked = RBLReplanner::pathInCollision(path_, cloud_snapshot, params_.encumbrance);
 
-    // Launch replanner only if not already running
+    // Launch replanner only if not already running. replanTimer() now gates a steady, fairly high
+    // rate (e.g. 5 Hz, see rbl_controller.yaml's replanner.replanner_freq) at which plan() itself
+    // decides whether to cheaply advance/validate the existing path or fall back to a full A*
+    // search -- see RBLReplanner::plan()'s doc comment. path_blocked remains here purely as a
+    // between-ticks emergency bypass, since this function's own tick rate (rate.timer_set_ref) runs
+    // faster than replanner_freq.
     if ((rbl_replanner_->replanTimer() || path_blocked) &&
         (!replanner_future_.valid() ||
          replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)) {
 
-      replanner_future_ = std::async(std::launch::async, [this]() {
-        rbl_replanner_->setAltitude(altitude_);
-        rbl_replanner_->setCurrentPosition(agent_pos_);
-        rbl_replanner_->setGoal(goal_);
-        rbl_replanner_->setPCL(cloud_);
+      // Captured by value (not [this]) so the async task plans against exactly the snapshot taken
+      // above, instead of re-reading agent_pos_/cloud_/... off `this` whenever the worker thread
+      // actually gets scheduled -- which could be well after newer writes have landed, and would
+      // reintroduce the same torn-read hazard input_mutex_ is meant to close.
+      replanner_future_ =
+          std::async(std::launch::async,
+                     [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, cloud_snapshot]() {
+        rbl_replanner_->setAltitude(altitude_snapshot);
+        rbl_replanner_->setCurrentPosition(agent_pos_snapshot);
+        rbl_replanner_->setGoal(goal_snapshot);
+        rbl_replanner_->setPCL(cloud_snapshot);
 
         auto new_path = rbl_replanner_->plan();
 
@@ -239,12 +279,12 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 
     // Use path if available, otherwise keep moving
     if (!path_.empty()) {
-      waypoint_fixed_distance_ = determineWaypointFixedDistance(path_, agent_pos_, goal_);
-      waypoint_                = determineWaypoint(path_, agent_pos_, goal_, waypoint_);
+      waypoint_fixed_distance_ = determineWaypointFixedDistance(path_, agent_pos_snapshot, goal_snapshot);
+      waypoint_                = determineWaypoint(path_, agent_pos_snapshot, goal_snapshot, waypoint_);
       destination_             = waypoint_;
     } else {
       // Fallback behavior — DO NOT return
-      destination_ = goal_;   // or keep previous destination_
+      destination_ = goal_snapshot;   // or keep previous destination_
     }
   }
   // if (params_.replanner) {

@@ -7,14 +7,12 @@
 
 #include <iostream>
 #include <cmath>
-#include <numeric> 
 #include <tuple>
 #include <vector>
 #include <optional>
 #include <memory>
 #include <chrono>
 #include <queue>
-#include <set>
 
 
 
@@ -80,10 +78,7 @@ struct ReplannerParams {
   double                                                    voxel_size;
   double                                                    map_width;
   double                                                    map_height;
-  double                                                    weight_safety;
-  double                                                    weight_deviation;
   double                                                    replanner_freq;
-  double                                                    eps                   = 0.001;
   double                                                    inflation_bonus       = 0.1;
   double                                                    replanner_vox_size    = 0.1;
   // [m] altitude (AGL, same convention as RBLParams::z_min/z_max in rbl_controller.yaml) band the
@@ -96,19 +91,54 @@ struct ReplannerParams {
   double                                                    z_max                 = 10.0;
   // Weight on the direction-consistency cost added to A*'s edge cost (see AStarPlan()) -- biases
   // the *start* of each new plan towards continuing in roughly the same heading as the previous
-  // plan's start, fading out with distance so only the near-agent portion is affected. Always
-  // plans from the agent's actual current position (never a frozen/locked prefix); this is what
-  // keeps the direction from flip-flopping between replans instead. Adjustable at runtime via
-  // setDirectionConsistencyWeight().
+  // plan's start, fading out with distance so only the near-agent portion is affected. Without
+  // this, a plan recomputed from scratch every cycle has no reason to prefer one of two
+  // near-equal-cost routes over the other, so the agent's heading can flip-flop between them every
+  // replan; this is what damps that. Adjustable at runtime via setDirectionConsistencyWeight().
   double                                                    direction_consistency_weight = 5.0;
-  // [s] If the agent hasn't moved more than stuck_distance over this long, shouldReplan() forces a
-  // fresh replan (a different route than the one it's apparently stuck on), instead of waiting for
-  // the path to reach stuck_check_percentage or become blocked.
-  double                                                    stuck_timeout         = 3.0;
-  // [m] Movement below this over stuck_timeout counts as "no progress" for the stuck check above.
-  double                                                    stuck_distance        = 0.3;
+  // [m] Distance over which the direction-consistency bias fades out (see AStarPlan()) -- e^-1 at
+  // this distance from the plan's start. Now that full A* searches are the exception rather than
+  // happening every tick (see plan()'s doc comment), each one covers a much longer, largely-fixed
+  // horizon; a decay distance shorter than that horizon leaves the far portion of the route free to
+  // flip to a different-but-equally-valid option on the next full replan with no bias pulling it
+  // back, which reads as the whole path (not just its start) occasionally jumping sideways.
+  double                                                    direction_decay_meters = 10.0;
+  // [m] How far into a fresh full A* search (from its start) the path_deviation_weight cost below
+  // stays active. Deliberately short and separate from direction_decay_meters: this term follows
+  // the previous plan's *local heading at that same distance along it* (see
+  // RBLReplanner::pathHeadingAtLength()), i.e. its actual near-start curve, rather than
+  // direction_penalty's single fixed initial bearing -- so a full replan doesn't yank the
+  // near-agent portion of the path sideways even when the previous route remains perfectly valid
+  // there. direction_decay_meters/consistency handles the (weaker, single-bearing) bias further out.
+  double                                                    path_deviation_distance = 2.0;
+  // Weight on angular misalignment (0 aligned .. 2 opposite, same scale as
+  // direction_consistency_weight's term) between a candidate edge's own heading and the previous
+  // plan's local heading at that point (see path_deviation_distance above), within
+  // path_deviation_distance of the search start. Strong enough to keep the near-agent heading
+  // stable across a full replan, but still soft, so it never overrides an actual obstacle.
+  double                                                    path_deviation_weight = 10.0;
+  // Fraction of the *current* path's remaining arc length the agent must cover before plan()
+  // abandons the cheap advance-and-validate path (see plan()) and runs a full A* search instead --
+  // keeps the local horizon being pushed out towards the goal even when nothing is blocking the
+  // path already known within it.
+  double                                                    progress_threshold    = 0.5;
 };
 
+// Discrete, obstacle-inflated 3D grid A* planner. Safety comes entirely from the grid: any cell
+// within (encumbrance + inflation_bonus) of an obstacle point is hard-blocked, so A* is
+// structurally unable to route through it -- there is no soft/weighted "prefer more clearance"
+// cost layered on top, which keeps the search itself a plain shortest-path problem and therefore
+// fast and predictable.
+//
+// plan() is meant to be called at a steady, fairly high rate (e.g. 5 Hz). Most calls do NOT re-run
+// A*: they trim the previous plan() result down to the vertices still ahead of the agent, splice
+// in a fresh segment from the agent's exact current position, and validate the result -- vertices
+// and the line-of-sight between them -- against the freshly rebuilt inflated grid. Only when that
+// validation fails (something now blocks the remaining path), the goal changed, or the agent has
+// covered progress_threshold of what's left does plan() fall back to a full A* search. This is what
+// lets consecutive plans share most of their waypoints instead of independently re-deriving a route
+// that can differ from the last one in irrelevant ways -- the actual source of route-to-route
+// "chattering" when replanning from scratch every cycle.
 class RBLReplanner {
 public:
   RBLReplanner(const ReplannerParams& par);
@@ -139,6 +169,17 @@ public:
                                const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,
                                double                                                  safety_radius);
 
+  // Stateless, same spirit as pathInCollision() above. True once the agent has covered at least
+  // `percentage` of `path`'s own arc length -- measured by projecting agent_pos onto the path's
+  // nearest segment (not just its nearest vertex, which would be a poor progress estimate once
+  // smoothPath() has collapsed the path down to a few long segments) and comparing arc length up
+  // to that projection against the path's total length. Meant to force a fresh replan well before
+  // the agent runs off the end of a stale path, instead of only relying on the periodic
+  // replanner_freq ceiling.
+  static bool pathMostlyTraveled(const std::vector<Eigen::Vector3d>& path,
+                                  const Eigen::Vector3d&              agent_pos,
+                                  double                               percentage);
+
 private:
   ReplannerParams                                           params_;
   double                                                    voxel_size_;
@@ -148,49 +189,45 @@ private:
   double                                                    altitude_;
   double                                                    z_min_;
   double                                                    z_max_;
-  double                                                    direction_consistency_weight_;
-  // Heading (unit vector) of the previous plan's own first segment, used by AStarPlan() to bias
-  // the new plan's start towards continuing that same direction. Empty (zero vector) until the
-  // first successful plan.
-  Eigen::Vector3d                                           last_plan_direction_ = Eigen::Vector3d::Zero();
-  bool                                                       have_last_plan_direction_ = false;
   // Grid z-index bounds corresponding to [z_min_, z_max_] AGL, recomputed each
   // initializationPlan() call. Everything outside this range is hard-blocked in
   // fillAndInflateGrid(), so A* can never route through it.
   int                                                        z_min_idx_ = 0;
   int                                                        z_max_idx_ = 0;
+  double                                                    direction_consistency_weight_;
+  // Heading (unit vector) of the previous plan's own first segment, used by AStarPlan() to bias
+  // the new plan's start towards continuing that same direction. Empty (zero vector) until the
+  // first successful plan. EMA-smoothed run-to-run (see plan()) rather than hard-overwritten, so a
+  // single transient A* tie-break flip doesn't itself become the next plan's bias target.
+  Eigen::Vector3d                                           last_plan_direction_ = Eigen::Vector3d::Zero();
+  bool                                                       have_last_plan_direction_ = false;
   Eigen::Vector3d                                           agent_pos_;
-  // Progress-tracking state for the "stuck" check in shouldReplan() -- see isStuck(). Reset to the
-  // agent's current position/time whenever it's moved more than stuck_distance_ since the last
-  // reset, so this only fires on a genuine, sustained lack of progress.
-  Eigen::Vector3d                                           stuck_check_pos_ = Eigen::Vector3d::Zero();
-  std::chrono::high_resolution_clock::time_point            stuck_check_time_;
-  bool                                                       have_stuck_check_ = false;
   Eigen::Vector3d                                           goal_;
+  // True from setGoal() until the next plan() that actually observes it -- forces that plan() to
+  // do a full A* search (a changed goal isn't something advanceAndValidate()'s trim-and-check can
+  // account for) instead of trying to advance the old, now-stale-goal path.
+  bool                                                      goal_changed_ = false;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>           cloud_;
+  // Previous plan() result (world coords) -- the basis advanceAndValidate() trims/extends from on
+  // the next call. Empty until the first successful plan.
   std::vector<Eigen::Vector3d>                              path_;
-  std::vector<Eigen::Vector3d>                              smooth_path_;
+  // Arc length of path_ at the moment it was last produced by a full A* search (not updated on a
+  // cheap advance-and-validate tick). plan()'s progress_threshold check compares the *current*
+  // remaining length of path_ against this fixed reference -- deliberately NOT against path_'s own
+  // current total length, which shrinks every single tick (advanceAndValidate() re-roots path_ at
+  // the agent's position every call) and so would make the threshold effectively compare "this
+  // tick's movement" against "whatever's left", firing only once almost nothing is left rather than
+  // with real margin to spare.
+  double                                                    horizon_length_ = 0.0;
   std::chrono::high_resolution_clock::time_point            last_replan;
   bool                                                      first_plan;
-  bool                                                      goal_changed_;
   //Variables related to grid
   int                                                       _X_;
   int                                                       _Y_;
   int                                                       _Z_;
   std::tuple<int, int, int>                                 _agent_pos_;
   std::tuple<int, int, int>                                 _goal_;
-  std::vector<std::tuple<int, int, int>>                    _path_;
   std::optional<VoxelGrid>                                  _inflated_grid_;
-  std::optional<VoxelGrid>                                  _clearance_grid_;
-
-  bool shouldReplan(const std::vector<Eigen::Vector3d>& path, Eigen::Vector3d& agent_pos, std::vector<std::tuple<int, int, int>> _path, std::optional<VoxelGrid>& grid);
-  bool percentageCompleted(const double percentage, const std::vector<Eigen::Vector3d>& path, Eigen::Vector3d& agent_pos);
-  bool pathBlocked(std::vector<std::tuple<int, int, int>> _path, std::optional<VoxelGrid>& grid);
-  // True if the agent has made less than stuck_distance_ of progress over the last stuck_timeout_
-  // seconds -- meant to catch cases where the path itself looks fine (not blocked, not near
-  // completion) but something downstream of the plan (local reactive avoidance, an oscillation) is
-  // keeping the agent from actually making headway along it, so a different route is worth trying.
-  bool isStuck(const Eigen::Vector3d& agent_pos);
 
   void initializationPlan();
   double roundToNextMultiple(double value, double multiple);
@@ -199,14 +236,26 @@ private:
   std::tuple<int, int, int> worldCoordsToGridIdx(const Eigen::Vector3d& point);
   std::tuple<int, int, int> worldCoordsToGridIdx(const pcl::PointXYZI& point);
   void fillAndInflateGrid(std::optional<VoxelGrid>& grid, const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud);
-  void calculateClearanceGrid(std::optional<VoxelGrid>& clearance_grid, const std::optional<VoxelGrid>& input_grid);
-  void calculate1dSquaredDistance(std::vector<int>& data, int length, int stride);
   std::vector<Eigen::Vector3d> gridPathToWorldPath(std::vector<std::tuple<int, int ,int>>& _path);
-  std::vector<std::tuple<int, int, int>> worldPathToGridPath(const std::vector<Eigen::Vector3d>& path);
   std::vector<std::tuple<int, int, int>> smoothPath(const std::vector<std::tuple<int, int ,int>>& _path, const std::optional<VoxelGrid>& grid);
   bool canConnectPoints(const std::tuple<int, int, int>& p1, const std::tuple<int, int, int>& p2, const std::optional<VoxelGrid>& grid);
-  std::vector<std::tuple<int, int ,int>> AStarPlan(const std::tuple<int, int, int> _start, const std::tuple<int, int, int> _goal, const std::vector<std::tuple<int, int, int>>& _path, const std::optional<VoxelGrid>& grid, const std::optional<VoxelGrid>& clearance_grid);
-  double deviationPenalty(const std::vector<std::tuple<int, int, int>>& _path, const std::tuple<int, int, int>& _p1, const std::tuple<int, int, int>& _p2);
+  // Trims `prev_path` to the vertices still ahead of agent_pos_ (dropping the consumed prefix),
+  // splices in a fresh leading segment from agent_pos_ itself, and validates every remaining vertex
+  // plus the line-of-sight between consecutive vertices against `grid`. Returns false (leaving
+  // `advanced_path` unspecified) if prev_path is too short to trim or anything fails validation --
+  // the caller should fall back to a full AStarPlan() in that case.
+  bool advanceAndValidate(const std::vector<Eigen::Vector3d>& prev_path, const std::optional<VoxelGrid>& grid, std::vector<Eigen::Vector3d>& advanced_path);
+  // Arc length of `path` still ahead of agent_pos_ -- i.e. total length minus the length up to
+  // agent_pos_'s projection onto path's nearest segment. Used against horizon_length_ to decide
+  // when plan() needs a full A* search (see horizon_length_'s doc comment).
+  double remainingPathLength(const std::vector<Eigen::Vector3d>& path);
+  // Unit tangent direction of `path` at arc length `length` from its front -- i.e. the local
+  // heading `path` itself had at that point of travel, clamped to path's own extent (returns the
+  // final segment's heading once `length` reaches or exceeds it). Zero vector if path has fewer
+  // than 2 points. Used to make the near-start heading bias in AStarPlan() follow the previous
+  // path's actual curve within path_deviation_distance, not just a single fixed initial bearing.
+  Eigen::Vector3d pathHeadingAtLength(const std::vector<Eigen::Vector3d>& path, double length);
+  std::vector<std::tuple<int, int ,int>> AStarPlan(const std::tuple<int, int, int> _start, const std::tuple<int, int, int> _goal, const std::optional<VoxelGrid>& grid);
   double euclideanDistance(const std::tuple<int, int, int>& p1, const std::tuple<int, int, int>& p2);
   std::tuple<int, int, int> closestFreeIdx(const std::tuple<int, int, int>& _position, const std::optional<VoxelGrid>& grid);
 };

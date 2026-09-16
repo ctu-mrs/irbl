@@ -96,10 +96,16 @@ struct RBLParams {
   bool                                  ciri                          = false;
   bool                                  add_estimates_as_voxels       = true;
   double                                inflation_bonus               = 0.0;
-  // [Hz] How often the replanner is even considered for a fresh full replan (see
-  // RBLReplanner::replanTimer()) -- a periodic ceiling on top of the event-based triggers
-  // (30% of path completed, path blocked, agent stuck), not a guarantee it replans this often.
+  // [Hz] Steady rate at which the replanner is asked for a fresh plan() (see
+  // RBLReplanner::replanTimer()); path_blocked (see getNextRef()) can trigger one sooner as an
+  // emergency bypass. Most of these calls are cheap -- plan() itself decides whether to advance the
+  // existing path or fall back to a full A* search, see replan_progress_threshold below and
+  // RBLReplanner::plan()'s doc comment.
   double                                replanner_freq                = 0.5;
+  // Forwarded to ReplannerParams::progress_threshold: fraction of the *current* path's remaining
+  // length the agent must cover before RBLReplanner::plan() abandons cheap advance-and-validate and
+  // runs a full A* search instead, so the local horizon keeps being pushed out towards the goal.
+  double                                replan_progress_threshold     = 0.5;
     bool downsample_pcl = false;
 };
 
@@ -180,6 +186,14 @@ private:
   std::shared_ptr<CIRI>                                     ciri_solver_;
   std::future<std::vector<Eigen::Vector3d>>                 replanner_future_;
   std::mutex                                                replanner_mutex_;
+  // Guards agent_pos_/altitude_/cloud_/goal_ -- written by the odometry/altitude/pointcloud
+  // subscription callbacks (cbkgrp_subs_) and read by getNextRef() (cbkgrp_timers_), which under
+  // the multi-threaded component container genuinely run on different threads concurrently. Without
+  // this, getNextRef() can read a torn Eigen::Vector3d (e.g. old x, new y/z) mid-write, which feeds
+  // the replanner a self-inconsistent agent position relative to the cloud it grids -- effectively a
+  // wrong transform between the two, producing an occasional path that comes unsafely close to (or
+  // through) a real obstacle.
+  std::mutex                                                input_mutex_;
 
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud, const Eigen::Vector3d& agent_pos, const double& altitude);
 std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> downSamplePcl(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,  // //{
