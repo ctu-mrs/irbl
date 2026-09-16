@@ -51,8 +51,8 @@
       add_estimates_as_voxels: true
 
     replanner:
-      inflation_bonus: 0.1
-      replanner_freq: 0.5 # [Hz] ceiling on how often a fresh full replan is even considered
+      inflation_bonus: 0.2
+      replanner_freq: 0.2 # [Hz] ceiling on how often a fresh full replan is even considered
 
     # Bounded local map of static obstacles (see nodelet/src/local_static_map.h) merged into the
     # live point cloud before it reaches rbl_controller_ at all -- feeds both the reactive CIRI
