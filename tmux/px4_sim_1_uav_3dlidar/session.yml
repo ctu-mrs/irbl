@@ -5,6 +5,8 @@
 # map_generator obstacle map, flying in the 'cylinder_forest' world (20 randomly-placed cylindrical
 # tree obstacles, same footprint/density as map_generator's defaults -- see
 # Tools/simulation/gz/worlds/cylinder_forest.sdf), no MRS system/library involved.
+# Also supports a 'warehouse' world (pallet racks, aisles, columns; worlds/generate_warehouse.py):
+# run ./start.sh warehouse.
 root: ./
 name: px4_simulation_3dlidar
 socket_name: px4sim3dlidar
@@ -15,9 +17,14 @@ pre_window:
   - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
   - export HEADLESS=${HEADLESS:-0}
   # Overrides the gz_x500_lidar_3d airframe's own default world (ROMFS/px4fmu_common/init.d-posix/
-  # airframes/4023_gz_x500_lidar_3d normally boots into 'walls') -- the lidar_bridge window below
+  # airframes/4024_gz_x500_lidar_3d, see airframes/ here, normally boots into 'walls') -- the lidar_bridge window below
   # needs this to build the exact gz topic path to bridge, so it must stay in sync with this value.
-  - export PX4_GZ_WORLD=cylinder_forest
+  # Default is cylinder_forest; ./start.sh warehouse (or PX4_GZ_WORLD=warehouse ./start.sh) picks
+  # worlds/warehouse.sdf from this folder instead, see the symlink step just below.
+  - export PX4_GZ_WORLD=${PX4_GZ_WORLD:-cylinder_forest}
+  # PX4 only looks for <PX4_GZ_WORLD>.sdf in its own Tools/simulation/gz/worlds, so link this
+  # folder's worlds in (idempotent; never clobbers a same-named real file).
+  - for w in ./worlds/*.sdf; do ln -sn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
   # gz sim stamps the bridged 3D lidar cloud with its own sim clock (seconds since the world
   # started), not wall time -- everything that needs to resolve TF at that cloud's timestamp
   # (rviz, when Fixed Frame isn't just the cloud's own frame) has to share that same clock, or a
@@ -38,8 +45,17 @@ windows:
       panes:
         # gz_x500_lidar_3d: x500 airframe with both the down-facing LW20 rangefinder (same as
         # x500_lidar_down) and a tilted 3D scanning lidar ("livox_link"). Boots into PX4_GZ_WORLD
-        # above by the airframe's own default.
-        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500_lidar_3d
+        # above.
+        # Deliberately NOT `make px4_sitl gz_x500_lidar_3d`: that target only exists if
+        # airframes/4024_gz_x500_lidar_3d was registered in PX4's ROMFS CMakeLists.txt AND cmake
+        # was re-run, and a shared PX4 checkout can easily fail to reconfigure for unrelated reasons
+        # (e.g. another project's airframe + world sharing a name -> duplicate cmake target),
+        # which silently leaves the sim without any lidar airframe. Instead install this folder's
+        # airframe file into the already-built tree and start the px4 binary the same way the
+        # make target does (PX4_SIM_MODEL + PX4_GZ_WORLD, from rootfs/).
+        - cp airframes/4024_gz_x500_lidar_3d $PX4_DIR/build/px4_sitl_default/etc/init.d-posix/airframes/ &&
+          cd $PX4_DIR/build/px4_sitl_default/rootfs &&
+          HEADLESS=$HEADLESS PX4_SIM_MODEL=gz_x500_lidar_3d GZ_IP=127.0.0.1 ../bin/px4
   - clock_bridge:
       layout: tiled
       panes:

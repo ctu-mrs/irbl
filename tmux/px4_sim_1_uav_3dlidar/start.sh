@@ -6,6 +6,9 @@ SCRIPT=$(readlink -f $0)
 SCRIPTPATH=`dirname $SCRIPT`
 cd "$SCRIPTPATH"
 
+# optional first argument: world name (cylinder_forest [default] or warehouse)
+[ -n "$1" ] && export PX4_GZ_WORLD=$1
+
 export TMUX_SESSION_NAME=px4_simulation_3dlidar
 export TMUX_SOCKET_NAME=px4sim3dlidar
 
