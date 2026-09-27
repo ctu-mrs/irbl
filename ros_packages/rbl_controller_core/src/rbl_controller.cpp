@@ -13,9 +13,6 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     replanner_params.inflation_bonus    = params.inflation_bonus;
     replanner_params.replanner_vox_size = 0.3;
     replanner_params.replanner_freq     = params.replanner_freq;
-    // Without these, ReplannerParams::z_min/z_max silently stay at their struct defaults (0.5/10.0)
-    // no matter what rbl_controller.yaml's z_min/z_max are set to -- the replanner's own altitude
-    // band would then not actually match the rest of the controller's.
     replanner_params.z_min              = params.z_min;
     replanner_params.z_max              = params.z_max;
     replanner_params.progress_threshold = params.replan_progress_threshold;
@@ -187,22 +184,6 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   /*   return std::nullopt; */
   /* } */
 
-  // Was dead code (never active, introduced already commented out): params_.downsample_pcl
-  // ("rbl_controller.pcl.downsample" in yaml) had no effect at all, since this is the only call
-  // site of downSamplePcl(). Every point of the raw incoming cloud -- including every point along
-  // a densely-sampled curved surface like a tree trunk, none of which mutually exclude each other
-  // in ciri's greedy plane cutting the way a coarser voxel grid would -- was reaching
-  // partitionCellACiri() directly, which is why raising ciri's plane cap alone didn't fix the
-  // "plane count exceeded limit" warning under a dense scan. cloud_obs_ stays commented out: it's
-  // separate, unfinished work-in-progress from the same commit and is never assigned anywhere, so
-  // calling getGroundCleanCloud() on it would dereference a null cloud.
-  //
-  // agent_pos_/altitude_/cloud_/goal_ are written by the odometry/altitude/pointcloud subscription
-  // callbacks, which run in a different callback group (and therefore a different thread, under the
-  // multi-threaded component container this node is loaded into) than this function. Snapshotting
-  // them together under input_mutex_ -- instead of reading the members directly further down -- is
-  // what prevents the replanner from ever seeing a torn/inconsistent agent position relative to the
-  // cloud it grids (see input_mutex_'s doc comment in the header).
   Eigen::Vector3d                                   agent_pos_snapshot;
   Eigen::Vector3d                                   goal_snapshot;
   double                                             altitude_snapshot;
@@ -229,13 +210,6 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 
   if (params_.replanner) {
 
-    // Consume planner result if ready (non-blocking) -- must happen *before* the launch check
-    // below: std::future::get() can only be called once, and .valid() goes false right after, so
-    // consuming first is what lets the launch check below correctly see "not running" on the same
-    // cycle a result finishes. Doing it the other way around (launch check first) meant that once
-    // path_blocked (below) could be true on the very cycle a result became ready, the launch check
-    // would reassign replanner_future_ to a brand new in-flight task before this block ever got to
-    // call .get() on the completed one -- silently discarding every finished plan forever.
     if (replanner_future_.valid() &&
         replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 
@@ -243,31 +217,12 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
       path_ = replanner_future_.get();   // latch new path
     }
 
-    // Cheap, stateless check against the just-refreshed live cloud (see the getGroundCleanCloud()
-    // call just above) -- catches a newly-revealed obstacle on the still-active path well before
-    // the next scheduled replanTimer() tick, so a collision forces an immediate replan instead of
-    // waiting out the rest of the replanner_freq period. Deliberately checked against just
-    // encumbrance (an actual physical collision), not encumbrance + inflation_bonus (the
-    // replanner's soft safety margin) -- a freshly-planned path is expected to legitimately graze
-    // that softer margin (it plans as close as the margin allows), so using it here would trigger
-    // an "emergency" replan on nearly every ordinary plan. The periodic replanTimer() already
-    // handles keeping the path away from the soft margin; this is only for a true emergency.
     const bool path_blocked = RBLReplanner::pathInCollision(path_, cloud_snapshot, params_.encumbrance);
 
-    // Launch replanner only if not already running. replanTimer() now gates a steady, fairly high
-    // rate (e.g. 5 Hz, see rbl_controller.yaml's replanner.replanner_freq) at which plan() itself
-    // decides whether to cheaply advance/validate the existing path or fall back to a full A*
-    // search -- see RBLReplanner::plan()'s doc comment. path_blocked remains here purely as a
-    // between-ticks emergency bypass, since this function's own tick rate (rate.timer_set_ref) runs
-    // faster than replanner_freq.
     if ((rbl_replanner_->replanTimer() || path_blocked) &&
         (!replanner_future_.valid() ||
          replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)) {
 
-      // Captured by value (not [this]) so the async task plans against exactly the snapshot taken
-      // above, instead of re-reading agent_pos_/cloud_/... off `this` whenever the worker thread
-      // actually gets scheduled -- which could be well after newer writes have landed, and would
-      // reintroduce the same torn-read hazard input_mutex_ is meant to close.
       replanner_future_ =
           std::async(std::launch::async,
                      [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, rpy_snapshot, cloud_snapshot]() {
@@ -1762,20 +1717,6 @@ RBLController::downSamplePcl(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& c
   pcl::PointCloud<pcl::PointXYZI>::Ptr boost_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(*cloud);
   pcl::PointCloud<pcl::PointXYZI>::Ptr boost_voxelized_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
 
-  // pcl::VoxelGrid sizes its internal grid from the cloud's bounding box and does not itself
-  // guard against non-finite points -- a single NaN/Inf (e.g. a real lidar's "no return" ray,
-  // out of range or into open sky) blows that box up enough to overflow its integer grid index,
-  // at which point it just gives up and hands back the input cloud completely unfiltered (logged
-  // as "Leaf size is too small for the input dataset. Integer indices would overflow."). Strip
-  // those first, same as any real PCL-based sensor pipeline has to.
-  //
-  // removeNaNFromPointCloud() itself takes a fast path that skips filtering entirely whenever
-  // cloud_in.is_dense is already true, trusting that flag instead of actually checking each
-  // point -- ros_gz_bridge's gz-to-ROS PointCloud2 conversion has no way to know whether the
-  // underlying gz sensor plugin ever emits non-finite points, so it can't be trusted to report
-  // is_dense accurately, and pcl::fromROSMsg() just carries that (possibly wrong) flag straight
-  // through. Force the slow, per-point path so a stale/incorrect is_dense:true doesn't silently
-  // defeat this filtering the same way it defeated VoxelGrid's own overflow guard above.
   boost_cloud->is_dense = false;
   std::vector<int> finite_indices;
   pcl::removeNaNFromPointCloud(*boost_cloud, *boost_cloud, finite_indices);

@@ -16,6 +16,9 @@ pre_window:
   - export UAV_NAME=uav1
   - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
   - export HEADLESS=${HEADLESS:-0}
+  # - export PX4_HOME_LAT=52.221933
+  # - export PX4_HOME_LON=6.948019
+  # - export PX4_HOME_ALT=35.0
   # Overrides the gz_x500_lidar_3d airframe's own default world (ROMFS/px4fmu_common/init.d-posix/
   # airframes/4024_gz_x500_lidar_3d, see airframes/ here, normally boots into 'walls') -- the lidar_bridge window below
   # needs this to build the exact gz topic path to bridge, so it must stay in sync with this value.

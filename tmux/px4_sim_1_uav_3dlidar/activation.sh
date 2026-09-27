@@ -14,7 +14,7 @@ case "${PX4_GZ_WORLD:-cylinder_forest}" in
     # spawn point, trunks as close as ~0.25m edge-to-edge elsewhere). This goal sends it most of the
     # way down the x axis through that whole field, so the 3D lidar has to actually detect and
     # repeatedly avoid obstacles over a long run, not just clip the odd one near the start.
-    GOAL="[-55, 0, 2.5, 0.0]"
+    GOAL="[-50, 0, 2.5, 0.0]"
     ;;
 esac
 
