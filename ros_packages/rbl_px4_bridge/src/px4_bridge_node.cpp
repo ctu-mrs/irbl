@@ -171,6 +171,12 @@ private:
     tf_msg.transform.rotation      = odom.pose.pose.orientation;
     tf_broadcaster_->sendTransform(tf_msg);
 
+    // Latch the on-ground heading until arming, so the pre-activation takeoff holds the spawn
+    // heading instead of yawing to NED 0 (north).
+    if (!armed_and_offboard_) {
+      takeoff_yaw_ned_ = px4_ros_com::frame_transforms::utils::quaternion::quaternion_get_yaw(q_px4);
+    }
+
     have_odom_ = true;
     last_position_enu_ = pos_enu;
   }
@@ -298,7 +304,7 @@ private:
       msg.position[0] = 0.0f;
       msg.position[1] = 0.0f;
       msg.position[2] = static_cast<float>(-takeoff_altitude_);
-      msg.yaw         = 0.0f;
+      msg.yaw         = static_cast<float>(takeoff_yaw_ned_);
     }
 
     msg.timestamp = now().nanoseconds() / 1000;
@@ -339,6 +345,7 @@ private:
   bool            armed_and_offboard_ = false;
   int             setpoint_count_     = 0;
   Eigen::Vector3d last_position_enu_  = Eigen::Vector3d::Zero();
+  double          takeoff_yaw_ned_    = 0.0;
   Eigen::Vector3d latest_setpoint_ned_ = Eigen::Vector3d::Zero();
   double          latest_yaw_ned_      = 0.0;
   // The setpoint actually sent to PX4 -- rate-limited towards latest_setpoint_ned_, see

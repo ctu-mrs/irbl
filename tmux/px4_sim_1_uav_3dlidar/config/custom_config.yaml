@@ -1,51 +1,174 @@
-# Custom PX4 firmware parameters for this sim session (px4_sim_1_uav_3dlidar).
+# Custom PX4 configuration for this sim session (px4_sim_1_uav_3dlidar).
 #
-# These are pushed into the running PX4 SITL instance at runtime via `param set <NAME> <VALUE>`,
-# by set_px4_params.sh (same folder) -- the same mechanism fix_arming_healthcheck.sh already uses for
-# NAV_DLL_ACT. Nothing here is a permanent edit of any PX4-Autopilot rootfs/airframe file, so
-# PX4-Autopilot never needs to be rebuilt to pick up a change: edit a value below and either
-# restart the sim session, or re-run ./set_px4_params.sh against an already-running one.
+# Two kinds of entries live here:
+#
+# 1. `launch:` -- environment variables read *before* PX4 boots (by launch_env.sh, sourced in every
+#    tmux pane). They pick the ROS domain, PX4 instance index, uXRCE-DDS namespace/port, world,
+#    spawn pose, ... -- things PX4 only reads once at startup. Changing one needs a full session
+#    restart (./kill.sh && ./start.sh). A null value means "don't touch, inherit from the shell".
+#
+# 2. Every other group -- PX4 firmware parameters, pushed into the running PX4 SITL instance at
+#    runtime via `param set <NAME> <VALUE>` by set_px4_params.sh (same folder) -- the same mechanism
+#    fix_arming_healthcheck.sh already uses for NAV_DLL_ACT. Nothing here is a permanent edit of any
+#    PX4-Autopilot rootfs/airframe file, so PX4-Autopilot never needs to be rebuilt to pick up a
+#    change: edit a value below and either restart the sim session, or re-run ./set_px4_params.sh
+#    against an already-running one. Params marked "reboot required" in the PX4 reference
+#    (UXRCE_DDS_*, EKF2_MAG_TYPE, ...) do NOT take effect this way -- use `launch:` for those.
+#
+# Unless a comment says otherwise, values below equal the effective default of this airframe
+# (4024_gz_x500_lidar_3d -> 4001_gz_x500 -> rc.mc_defaults, PX4 main), so listing them changes
+# nothing until you edit them. Comment a line out to leave that param alone entirely.
 #
 # Full parameter reference: https://docs.px4.io/main/en/advanced_config/parameter_reference.html
 
+launch:
+  ROS_DOMAIN_ID: 48             # ROS 2 domain for every node AND for PX4 (rcS copies it into
+                                # UXRCE_DDS_DOM_ID). 48 = what ~/.zshrc exports; null = inherit
+  ROS_AUTOMATIC_DISCOVERY_RANGE: null  # SUBNET (default) / LOCALHOST / OFF / SYSTEM_DEFAULT
+  PX4_INSTANCE: 0               # px4 -i <n>: MAV_SYS_ID/UXRCE_DDS_KEY = n+1, gz model x500_lidar_3d_<n>,
+                                # and (unless a namespace is set below) /fmu topics become /px4_<n>/fmu/...
+  PX4_UXRCE_DDS_NS: null        # explicit /fmu topic namespace, e.g. "uav1" -> /uav1/fmu/...;
+                                # "" forces no namespace; null = PX4 default (see PX4_INSTANCE)
+  PX4_UXRCE_DDS_NS_IDX: null    # index-based namespace uav_<idx> (same as the UXRCE_DDS_NS_IDX param);
+                                # ignored if PX4_UXRCE_DDS_NS is set. null / -1 = disabled
+  PX4_UXRCE_DDS_PORT: 8888      # UDP port of the uXRCE-DDS link (the agent window listens on the same)
+  PX4_GZ_WORLD: cylinder_forest # cylinder_forest | warehouse (worlds/) | any PX4 gz world;
+                                # ./start.sh <world> overrides this
+  PX4_GZ_MODEL_POSE: null       # spawn pose "x,y,z,roll,pitch,yaw" [m, rad]; null = world origin
+  PX4_HOME_LAT: null            # [deg] world origin / home; all three of LAT, LON, ALT must be set
+  PX4_HOME_LON: null            # [deg]
+  PX4_HOME_ALT: null            # [m AMSL]
+  HEADLESS: 0                   # 1 = run gz sim without its GUI
+  PX4_GZ_SIM_RENDER_ENGINE: null  # ogre | ogre2 -- set to ogre if the lidar/GUI misbehaves on your GPU
+
 takeoff_landing_rtl:
-  MPC_TKO_ALT: 2.0        # [m] altitude AGL at which a takeoff is considered finished
-  MPC_TKO_SPEED: 1.5      # [m/s] ascent speed during takeoff
-  MPC_LAND_SPEED: 0.7     # [m/s] descent speed during the final landing phase
-  MPC_LAND_ALT1: 10.0     # [m] AGL at which descent speed starts ramping down towards MPC_LAND_SPEED
-  MPC_LAND_ALT2: 5.0      # [m] AGL at which descent speed reaches MPC_LAND_SPEED
-  RTL_RETURN_ALT: 30.0    # [m] climb to this altitude above home before returning
-  RTL_DESCEND_ALT: 10.0   # [m] altitude above home to slow down and prepare to land
-  RTL_LAND_DELAY: -1.0    # [s] hover time at RTL_DESCEND_ALT before landing (-1 = loiter, never land)
-  RTL_TYPE: 0             # 0: return home then land, 1: land at the closest rally point/mission land pattern
+  MIS_TAKEOFF_ALT: 3.0      # [m] altitude AGL PX4's Takeoff mode climbs to (default 2.5; replaces the
+                            # old MPC_TKO_ALT, which no longer exists). px4_bridge_node's offboard
+                            # takeoff uses its own takeoff_altitude instead
+  MPC_TKO_SPEED: 1.5        # [m/s] ascent speed during takeoff
+  MPC_TILTMAX_LND: 12.0     # [deg] max tilt during the initial takeoff ramp / landing
+  MPC_LAND_SPEED: 0.7       # [m/s] descent speed during the final landing phase
+  MPC_LAND_CRWL: 0.3        # [m/s] crawl descent speed below MPC_LAND_ALT3 (needs a distance sensor)
+  MPC_LAND_ALT1: 10.0       # [m] AGL at which descent speed starts ramping down towards MPC_LAND_SPEED
+  MPC_LAND_ALT2: 5.0        # [m] AGL at which descent speed reaches MPC_LAND_SPEED
+  RTL_RETURN_ALT: 3.0       # [m] climb to this altitude above home before returning (airframe default 30)
+  RTL_DESCEND_ALT: 10.0     # [m] altitude above home to slow down and prepare to land
+  RTL_LAND_DELAY: -1.0      # [s] hover time at RTL_DESCEND_ALT before landing (-1 = loiter, never land)
+  RTL_TYPE: 0               # 0 direct to home/rally point, 1 mission landing or rally, 3 closest safe destination
+  NAV_ACC_RAD: 10.0         # [m] horizontal acceptance radius for mission/Goto waypoints
+  NAV_MC_ALT_RAD: 0.8       # [m] vertical acceptance radius for multicopter waypoints
+
+land_detector:
+  COM_DISARM_LAND: 2.0      # [s] auto-disarm this long after landing is detected (-1 disables)
+  COM_DISARM_PRFLT: 10.0    # [s] auto-disarm if armed but not taken off within this time (-1 disables)
+  LNDMC_Z_VEL_MAX: 0.25     # [m/s] max vertical speed still considered "landed"
+  LNDMC_XY_VEL_MAX: 1.5     # [m/s] max horizontal speed still considered "landed"
 
 estimation:
   # gz_x500_lidar_3d carries the same downward-facing LW20 rangefinder as x500_lidar_down (plus
   # the 3D lidar used for pcl_topic below), so EKF2_RNG_CTRL is on by
   # default -- set it to 0 if you switch back to a model without one.
-  EKF2_HGT_REF: 0          # main height reference fused by the EKF: 0 baro, 1 GPS, 2 range sensor, 3 vision
-  EKF2_GPS_CTRL: 7         # bitmask of GPS aiding used by the EKF (1 horiz pos, 2 vert vel, 4 horiz vel)
-  EKF2_EV_CTRL: 0          # bitmask of external vision aiding used by the EKF (0 = disabled)
+  EKF2_HGT_REF: 1          # main height reference fused by the EKF: 0 baro, 1 GPS, 2 range sensor, 3 vision
+  EKF2_BARO_CTRL: 1        # barometer height aiding: 0 disabled, 1 enabled
+  EKF2_GPS_CTRL: 7         # bitmask of GPS aiding used by the EKF (1 horiz pos, 2 vert pos, 4 3D vel, 8 dual-antenna heading)
+  EKF2_GPS_CHECK: 2047     # bitmask of GPS quality checks required before GPS is used (0 = no checks)
+  EKF2_REQ_EPH: 3.0        # [m] max horizontal position accuracy for GPS to be accepted
+  EKF2_REQ_EPV: 5.0        # [m] max vertical position accuracy for GPS to be accepted
+  EKF2_REQ_GPS_H: 0.5      # [s] how long GPS must look healthy at startup (SITL default; 10 on real HW)
+  EKF2_EV_CTRL: 0          # bitmask of external vision aiding (1 horiz pos, 2 vert pos, 4 3D vel, 8 yaw; 0 = disabled)
+  EKF2_EV_DELAY: 0.0       # [ms] external vision delay relative to IMU
+  EKF2_EVP_NOISE: 0.1      # [m] vision position measurement noise (used when EKF2_EV_NOISE_MD = 1)
+  EKF2_EV_NOISE_MD: 0      # vision noise source: 0 message covariance (params as lower bound), 1 EKF2_EVP_NOISE etc.
   EKF2_RNG_CTRL: 1         # rangefinder use for height: 0 disabled, 1 conditional (near ground), 2 always
-  EKF2_RNG_A_HMAX: 10.0    # [m] max height above ground at which range data still aids the EKF --
+  EKF2_RNG_A_HMAX: 10.0    # [m] max height above ground at which range data still aids the EKF (default 5) --
                            # kept near MPC_LAND_ALT1 rather than the LW20's full 100 m range, since
                            # range fusion assumes flat terrain below and this sim's flight altitudes
                            # (~2.5 m) never need it further out
+  EKF2_RNG_A_VMAX: 1.0     # [m/s] max horizontal speed for conditional range aiding
+  EKF2_RNG_DELAY: 5.0      # [ms] rangefinder delay relative to IMU
+  EKF2_RNG_NOISE: 0.1      # [m] rangefinder measurement noise
+  EKF2_MIN_RNG: 0.01       # [m] expected rangefinder reading when on the ground
+  EKF2_RNG_FOG: 1.0        # [m] max distance at which the rangefinder may be blocked by fog (0 disables check)
 
 velocity_limits:
-  MPC_XY_VEL_MAX: 5      # [m/s] maximum horizontal velocity in Auto/Offboard modes
+  MPC_XY_VEL_MAX: 5        # [m/s] maximum horizontal velocity in Auto/Offboard modes (default 12)
+  MPC_XY_CRUISE: 3.0       # [m/s] default horizontal cruise speed in Auto mode (default 5)
+  MPC_VEL_MANUAL: 10.0     # [m/s] maximum horizontal velocity in Position mode
   MPC_Z_VEL_MAX_UP: 3.0    # [m/s] maximum ascent velocity
   MPC_Z_VEL_MAX_DN: 1.5    # [m/s] maximum descent velocity
-  MPC_XY_CRUISE: 3.0       # [m/s] default horizontal cruise speed in Auto mode
-  MPC_ACC_HOR_MAX: 40.0     #5 [m/s^2] maximum horizontal acceleration in Auto/Offboard modes
-  MPC_JERK_MAX: 80.0        #8 [m/s^3] maximum jerk (0 disables jerk-limited trajectory shaping)
+  MPC_YAWRAUTO_MAX: 60.0   # [deg/s] maximum yaw rate in Auto/Offboard modes
+  MPC_YAWRAUTO_ACC: 20.0   # [deg/s^2] maximum yaw acceleration in Auto/Offboard modes
+  MPC_TILTMAX_AIR: 45.0    # [deg] maximum tilt angle in flight
+  MPC_HOLD_MAX_XY: 0.8     # [m/s] below this horizontal speed Position mode switches to position hold
+  MPC_HOLD_MAX_Z: 0.6      # [m/s] below this vertical speed Position mode switches to altitude hold
+
+acceleration_jerk:
+  MPC_ACC_HOR_MAX: 40.0    # [m/s^2] maximum horizontal acceleration in Auto/Offboard modes (default 5)
+  MPC_ACC_HOR: 3.0         # [m/s^2] acceleration used by the Auto-mode trajectory generator
+  MPC_ACC_UP_MAX: 4.0      # [m/s^2] maximum upward acceleration
+  MPC_ACC_DOWN_MAX: 3.0    # [m/s^2] maximum downward acceleration
+  MPC_JERK_MAX: 80.0       # [m/s^3] maximum jerk (0 disables jerk-limited trajectory shaping) (default 8)
+  MPC_JERK_AUTO: 4.0       # [m/s^3] jerk limit of the Auto-mode trajectory generator
+  MPC_XY_TRAJ_P: 0.5       # proportional gain on the trajectory generator's position error
+  MPC_XY_ERR_MAX: 2.0      # [m] max position error the trajectory generator tolerates before slowing down
+
+thrust:
+  MPC_THR_HOVER: 0.6       # [0-1] hover thrust (gz_x500 airframe value; hover estimator refines it in flight)
+  MPC_THR_MIN: 0.12        # [0-1] minimum collective thrust in climb-rate-controlled modes
+  MPC_THR_MAX: 1.0         # [0-1] maximum collective thrust in climb-rate-controlled modes
+
+position_control_gains:
+  MPC_XY_P: 0.95           # horizontal position P gain
+  MPC_Z_P: 1.0             # vertical position P gain
+  MPC_XY_VEL_P_ACC: 1.8    # horizontal velocity P gain
+  MPC_XY_VEL_I_ACC: 0.4    # horizontal velocity I gain
+  MPC_XY_VEL_D_ACC: 0.2    # horizontal velocity D gain
+  MPC_Z_VEL_P_ACC: 4.0     # vertical velocity P gain
+  MPC_Z_VEL_I_ACC: 2.0     # vertical velocity I gain
+  MPC_Z_VEL_D_ACC: 0.0     # vertical velocity D gain
+
+attitude_rate_control:
+  MC_ROLL_P: 4.0           # roll angle P gain
+  MC_PITCH_P: 4.0          # pitch angle P gain
+  MC_YAW_P: 2.8            # yaw angle P gain
+  MC_YAW_WEIGHT: 0.4       # [0-1] how much yaw is prioritized vs. roll/pitch
+  MC_ROLLRATE_MAX: 220.0   # [deg/s] max roll rate
+  MC_PITCHRATE_MAX: 220.0  # [deg/s] max pitch rate
+  MC_YAWRATE_MAX: 200.0    # [deg/s] max yaw rate
+  MC_ROLLRATE_P: 0.15      # roll rate P gain
+  MC_ROLLRATE_I: 0.2       # roll rate I gain
+  MC_ROLLRATE_D: 0.003     # roll rate D gain
+  MC_PITCHRATE_P: 0.15     # pitch rate P gain
+  MC_PITCHRATE_I: 0.2      # pitch rate I gain
+  MC_PITCHRATE_D: 0.003    # pitch rate D gain
+  MC_YAWRATE_P: 0.2        # yaw rate P gain
+  MC_YAWRATE_I: 0.1        # yaw rate I gain
 
 failsafe_commander:
-  COM_RC_IN_MODE: 0        # RC input handling: 0 RC and joystick, 1 joystick only, 4 disable both
-  COM_OBL_ACT: 2            # action on Offboard signal loss: 0 land, 1 hold (loiter), 2 RTL
-  COM_OBL_RC_ACT: 0         # action on Offboard loss with a valid RC still present: 0 hand control back to RC
-  COM_OF_LOSS_T: 1.0         # [s] how long PX4 tolerates a stalled offboard stream (px4_bridge_node's
-                              # publish_rate, default 20 Hz / 0.05s period) before declaring it lost and
-                              # triggering COM_OBL_ACT/COM_OBL_RC_ACT above
-  COM_LOW_BAT_ACT: 2        # low battery action: 0 warn only, 1 return, 2 land, 3 return then land at critical
-  GF_ACTION: 2               # geofence breach action: 0 none, 1 warn, 2 hold, 3 RTL, 4 terminate
+  COM_RC_IN_MODE: 0        # manual control source: 0 RC only, 1 MAVLink only, 3 RC or MAVLink (keep first),
+                           # 4 disable manual control (SITL default 1)
+  NAV_RCL_ACT: 2           # action on manual control (RC) loss: 1 hold, 2 return, 3 land, 5 terminate, 6 disarm
+  COM_RCL_EXCEPT: 0        # bitmask of modes where RC loss is ignored: 1 mission, 2 auto modes, 4 offboard
+  NAV_DLL_ACT: 0           # action on GCS link loss: 0 disabled (see fix_arming_healthcheck.sh), 1 hold, 2 return, 3 land
+  COM_OBL_RC_ACT: 0        # action on offboard signal loss: 0 position, 1 altitude, 2 stabilized, 3 return,
+                           # 4 land, 5 hold, 6 terminate, 7 disarm. (Replaces COM_OBL_ACT, which no longer
+                           # exists; this file used to set COM_OBL_ACT 2 = RTL, which would now be 3.)
+  COM_OF_LOSS_T: 1.0       # [s] how long PX4 tolerates a stalled offboard stream (px4_bridge_node's
+                           # publish_rate, 50 Hz here) before triggering COM_OBL_RC_ACT above
+  COM_ARM_WO_GPS: 1        # arming without GNSS: 0 deny, 1 allow with warning, 2 allow silently
+  COM_POS_FS_EPH: 5.0      # [m] horizontal position error above which position is considered lost
+  GF_ACTION: 2             # geofence breach action: 0 none, 1 warn, 2 hold, 3 return, 4 terminate, 5 land
+  GF_MAX_HOR_DIST: 0.0     # [m] max horizontal distance from home (0 = unlimited)
+  GF_MAX_VER_DIST: 0.0     # [m] max altitude above home (0 = unlimited)
+
+battery:
+  COM_LOW_BAT_ACT: 2       # low battery action: 0 warn only, 2 land, 3 return at critical / land at emergency,
+                           # 4 return at critical / terminate at emergency (SITL default 3)
+  BAT_LOW_THR: 0.15        # [0-1] remaining capacity considered "low"
+  BAT_CRIT_THR: 0.07       # [0-1] remaining capacity considered "critical"
+  BAT_EMERGEN_THR: 0.05    # [0-1] remaining capacity considered "emergency"
+  COM_ARM_BAT_MIN: -1.0    # [0-1] minimum battery level to allow arming (negative = use BAT_CRIT_THR)
+
+logging:
+  SDLOG_MODE: 1            # 0 armed until disarm, 1 boot until disarm (SITL default), 2 boot until shutdown
+  SDLOG_PROFILE: 131       # logged topic profile bitmask (1 default, 2 estimator replay, 16 high rate, 128 vision/avoidance, ...)

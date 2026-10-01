@@ -15,16 +15,16 @@ startup_window: activation
 pre_window:
   - export UAV_NAME=uav1
   - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
-  - export HEADLESS=${HEADLESS:-0}
-  # - export PX4_HOME_LAT=52.221933
-  # - export PX4_HOME_LON=6.948019
-  # - export PX4_HOME_ALT=35.0
+  # ROS_DOMAIN_ID, PX4 instance, uXRCE-DDS namespace/port, world, spawn pose, home, HEADLESS, ...
+  # come from the `launch:` section of config/custom_config.yaml -- see launch_env.sh, which also
+  # derives PX4_FMU_NS / PX4_TARGET_SYSTEM / GZ_VEHICLE_MODEL_NAME for the windows below.
+  - . ./launch_env.sh
   # Overrides the gz_x500_lidar_3d airframe's own default world (ROMFS/px4fmu_common/init.d-posix/
   # airframes/4024_gz_x500_lidar_3d, see airframes/ here, normally boots into 'walls') -- the lidar_bridge window below
   # needs this to build the exact gz topic path to bridge, so it must stay in sync with this value.
-  # Default is cylinder_forest; ./start.sh warehouse (or PX4_GZ_WORLD=warehouse ./start.sh) picks
-  # worlds/warehouse.sdf from this folder instead, see the symlink step just below.
-  - export PX4_GZ_WORLD=${PX4_GZ_WORLD:-cylinder_forest}
+  # Default is launch.PX4_GZ_WORLD in config/custom_config.yaml; ./start.sh warehouse (or
+  # PX4_GZ_WORLD=warehouse ./start.sh) picks worlds/warehouse.sdf from this folder instead, see the
+  # symlink step just below.
   # PX4 only looks for <PX4_GZ_WORLD>.sdf in its own Tools/simulation/gz/worlds, so link this
   # folder's worlds in (idempotent; never clobbers a same-named real file).
   - for w in ./worlds/*.sdf; do ln -sn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
@@ -42,7 +42,7 @@ windows:
   - micro_xrce_agent:
       layout: tiled
       panes:
-        - MicroXRCEAgent udp4 -p 8888
+        - MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT
   - px4_sitl:
       layout: tiled
       panes:
@@ -58,7 +58,7 @@ windows:
         # make target does (PX4_SIM_MODEL + PX4_GZ_WORLD, from rootfs/).
         - cp airframes/4024_gz_x500_lidar_3d $PX4_DIR/build/px4_sitl_default/etc/init.d-posix/airframes/ &&
           cd $PX4_DIR/build/px4_sitl_default/rootfs &&
-          HEADLESS=$HEADLESS PX4_SIM_MODEL=gz_x500_lidar_3d GZ_IP=127.0.0.1 ../bin/px4
+          HEADLESS=$HEADLESS PX4_SIM_MODEL=gz_x500_lidar_3d GZ_IP=127.0.0.1 ../bin/px4 -i $PX4_INSTANCE
   - clock_bridge:
       layout: tiled
       panes:
@@ -95,12 +95,13 @@ windows:
         # pcl_topic (below) points at that same remapped name. The point cloud's header.frame_id
         # comes through as "livox_link" (the sensor's <gz_frame_id> in model.sdf, unprefixed --
         # fine for a single vehicle), matching the child frame publish_sensor_tf.sh publishes.
+        # GZ_VEHICLE_MODEL_NAME is x500_lidar_3d_<PX4_INSTANCE>, the name px4-rc.gzsim spawns it under.
         - until gz topic -l 2>/dev/null | grep -q
-          "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points"; do
+          "/world/$PX4_GZ_WORLD/model/$GZ_VEHICLE_MODEL_NAME/link/livox_link/sensor/livox/scan/points"; do
           sleep 1; done;
           ros2 run ros_gz_bridge parameter_bridge
-          "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked"
-          --ros-args -r "/world/$PX4_GZ_WORLD/model/x500_lidar_3d_0/link/livox_link/sensor/livox/scan/points:=/$UAV_NAME/sensors/lidar_3d/points"
+          "/world/$PX4_GZ_WORLD/model/$GZ_VEHICLE_MODEL_NAME/link/livox_link/sensor/livox/scan/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked"
+          --ros-args -r "/world/$PX4_GZ_WORLD/model/$GZ_VEHICLE_MODEL_NAME/link/livox_link/sensor/livox/scan/points:=/$UAV_NAME/sensors/lidar_3d/points"
           -p use_sim_time:=true
   - px4_bridge:
       layout: tiled
@@ -108,6 +109,7 @@ windows:
         - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
           -p uav_name:=$UAV_NAME -p control_frame:=$UAV_NAME/world_origin
           -p takeoff_altitude:=2.0 -p auto_arm:=true -p use_sim_time:=true -p publish_rate:=50.0
+          -p target_system:=$PX4_TARGET_SYSTEM ${PX4_FMU_NS:+-p} ${PX4_FMU_NS:+px4_ns:=$PX4_FMU_NS}
   - rbl_controller:
       layout: tiled
       panes:

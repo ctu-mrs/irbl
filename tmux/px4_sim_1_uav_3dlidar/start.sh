@@ -7,7 +7,8 @@ SCRIPTPATH=`dirname $SCRIPT`
 cd "$SCRIPTPATH"
 
 # optional first argument: world name (cylinder_forest [default] or warehouse)
-[ -n "$1" ] && export PX4_GZ_WORLD=$1
+# (beats launch.PX4_GZ_WORLD in config/custom_config.yaml, see launch_env.sh)
+export PX4_GZ_WORLD_CLI=${1:-$PX4_GZ_WORLD}
 
 export TMUX_SESSION_NAME=px4_simulation_3dlidar
 export TMUX_SOCKET_NAME=px4sim3dlidar

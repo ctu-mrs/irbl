@@ -17,8 +17,10 @@ python3 - "$CONFIG" <<'PYEOF' | while read -r NAME VALUE; do
 import sys, yaml
 with open(sys.argv[1]) as f:
     groups = yaml.safe_load(f)
-for group in groups.values():
-    for name, value in group.items():
+for key, group in groups.items():
+    if key == "launch":  # env vars for launch_env.sh, not PX4 params
+        continue
+    for name, value in (group or {}).items():
         print(name, value)
 PYEOF
   tmux -L $TMUX_SOCKET_NAME send-keys -t $TMUX_SESSION_NAME:px4_sitl "param set $NAME $VALUE" Enter
