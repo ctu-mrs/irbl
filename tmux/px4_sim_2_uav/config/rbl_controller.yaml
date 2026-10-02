@@ -16,6 +16,7 @@
       limited_fov: true
       only_2d: false
       ciri: true
+      reflective_intensity_threshold: 0.99 # points >= this are other UAVs (group_odoms.add_to_pcl injects them at 1.0)
       lidar_tilt: 20.0 # [deg]
       lidar_fov: 59.0 #[deg]
       step_size: 0.2

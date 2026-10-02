@@ -33,7 +33,8 @@
   <depend>rbl_replanner</depend>
   <depend>ciri</depend>
   <depend>rbl_controller_core</depend>
-  <depend>ouster_sensor_msgs</depend>
+  <!-- Optional (CMake find_package QUIET): only orders the build after it when it is in the
+       workspace; colcon ignores it when absent. -->
   <depend>filter_reflective_uavs</depend>
 
   <depend>eigen</depend>

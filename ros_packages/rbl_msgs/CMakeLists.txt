@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Reference.msg"
   "msg/ReferenceStamped.msg"
   "msg/Float64Stamped.msg"
+  "msg/PoseVelocityArray.msg"
   "srv/Vec4.srv"
   "srv/Float64Srv.srv"
   DEPENDENCIES std_msgs geometry_msgs

@@ -24,11 +24,18 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(ouster_sensor_msgs REQUIRED)
-# filter_reflective_uavs's exported CMake target links mrs_lib; this package's own code does not
-# use mrs_lib at all, but mrs_lib still needs to be find_package()-d here to resolve that target.
-find_package(mrs_lib REQUIRED)
-find_package(filter_reflective_uavs REQUIRED)
+# Optional: only used for the "~/reflective_group_states_in" input (the filter_reflective_uavs
+# detector's output). Without it RBL builds and runs normally; group states then come only from
+# "~/group_states_in" (rbl_msgs/PoseVelocityArray). Its exported CMake target links mrs_lib and
+# ouster_ros, so those are needed only in that case.
+find_package(filter_reflective_uavs QUIET)
+if(filter_reflective_uavs_FOUND)
+  find_package(mrs_lib REQUIRED)
+  find_package(ouster_sensor_msgs REQUIRED)
+  message(STATUS "filter_reflective_uavs found: enabling ~/reflective_group_states_in")
+else()
+  message(STATUS "filter_reflective_uavs not found: building without ~/reflective_group_states_in")
+endif()
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(tf2 REQUIRED)
@@ -42,6 +49,8 @@ find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(rbl_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -72,12 +81,17 @@ ament_target_dependencies(
   pcl_conversions
   geometry_msgs
   nav_msgs
+  sensor_msgs
+  visualization_msgs
   rbl_msgs
-  ouster_sensor_msgs
-  filter_reflective_uavs
   std_srvs
   std_msgs
 )
+
+if(filter_reflective_uavs_FOUND)
+  ament_target_dependencies(${RBL_CONTROLLER_NODE_TARGET} filter_reflective_uavs)
+  target_compile_definitions(${RBL_CONTROLLER_NODE_TARGET} PRIVATE RBL_WITH_FILTER_REFLECTIVE_UAVS)
+endif()
 
 target_link_libraries(
   ${RBL_CONTROLLER_NODE_TARGET}

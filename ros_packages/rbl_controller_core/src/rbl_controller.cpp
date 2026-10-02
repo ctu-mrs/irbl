@@ -83,6 +83,12 @@ void RBLController::setBetaD(double beta)
 void RBLController::setAltitude(const double& alt)  // //{
 {
   std::lock_guard<std::mutex> lock(input_mutex_);
+  // Without garmin, altitude_ tracks agent_pos_.z() (see setCurrentPosition()); letting an external
+  // altitude topic overwrite it too makes it alternate between two references, shifting the
+  // replanner's grid/ground level from tick to tick.
+  if (!params_.use_garmin_alt) {
+    return;
+  }
   altitude_ = alt;
 }  // //}
 
@@ -198,7 +204,9 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
     cloud_snapshot       = cloud_;
   }
 
-  cloud_snapshot = getGroundCleanCloud(cloud_snapshot, agent_pos_snapshot, altitude_snapshot);
+  std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> replanner_cloud;
+  cloud_snapshot = getGroundCleanCloud(cloud_snapshot, agent_pos_snapshot, altitude_snapshot,
+                                       params_.replanner ? &replanner_cloud : nullptr);
   // cloud_obs_ = getGroundCleanCloud(cloud_obs_, agent_pos_, altitude_);
   if (!cloud_snapshot) {
     return std::nullopt;
@@ -217,7 +225,7 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
       path_ = replanner_future_.get();   // latch new path
     }
 
-    const bool path_blocked = RBLReplanner::pathInCollision(path_, cloud_snapshot, params_.encumbrance);
+    const bool path_blocked = RBLReplanner::pathInCollision(path_, replanner_cloud, params_.encumbrance);
 
     if ((rbl_replanner_->replanTimer() || path_blocked) &&
         (!replanner_future_.valid() ||
@@ -225,7 +233,7 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 
       replanner_future_ =
           std::async(std::launch::async,
-                     [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, rpy_snapshot, cloud_snapshot]() {
+                     [this, agent_pos_snapshot, goal_snapshot, altitude_snapshot, rpy_snapshot, replanner_cloud]() {
         rbl_replanner_->setAltitude(altitude_snapshot);
         rbl_replanner_->setCurrentPosition(agent_pos_snapshot);
         rbl_replanner_->setGoal(goal_snapshot);
@@ -233,7 +241,7 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
         // forward-lock cone in the UAV's actual orientation rather than only the planner's own
         // prior output (see RBLReplanner::setCurrentHeading()'s doc comment).
         rbl_replanner_->setCurrentHeading(Eigen::Vector3d(std::cos(rpy_snapshot.z()), std::sin(rpy_snapshot.z()), 0.0));
-        rbl_replanner_->setPCL(cloud_snapshot);
+        rbl_replanner_->setPCL(replanner_cloud);
 
         auto new_path = rbl_replanner_->plan();
 
@@ -494,11 +502,10 @@ std::vector<Eigen::Vector3d> RBLController::getPath()  // //{
 std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>
 RBLController::getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,  // //{
                                    const Eigen::Vector3d&                           agent_pos,
-                                   const double&                                    altitude)
+                                   const double&                                    altitude,
+                                   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>* replanner_cloud)
 {
-  (void)altitude;     // TODO - currently unused
-
-  if (cloud->size() <= 0) {
+  if (!cloud || cloud->size() <= 0) {
     std::cout << "[RBLController]: PointCloud is empty. Can not clean ground" << std::endl;
     return nullptr;
   }
@@ -526,6 +533,23 @@ RBLController::getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZ
     if (pt.z > (agent_pos.z() - params_.encumbrance)) {
       temp_no_ground_cloud.push_back(pt);
     }
+  }
+
+  // The cut above (everything below the UAV is "ground") is only valid for the reactive partition.
+  // The replanner's A* moves in 3D down to z_min, so feeding it that cloud makes every obstacle
+  // below the current flight height invisible and lets it plan straight through trunks/low
+  // obstacles whenever the route descends. Give it everything except the real ground instead.
+  if (replanner_cloud) {
+    constexpr double kReplannerGroundTolerance = 0.2;  // [m]
+    const double     ground_z                  = agent_pos.z() - altitude;
+    auto             terrain_clean             = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+    terrain_clean->reserve(cloud->points.size());
+    for (const auto& pt : cloud->points) {
+      if (pt.z > ground_z + kReplannerGroundTolerance) {
+        terrain_clean->push_back(pt);
+      }
+    }
+    *replanner_cloud = terrain_clean;
   }
 
   return std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(temp_no_ground_cloud);
@@ -978,10 +1002,10 @@ std::vector<Eigen::Vector3d>                     cell_B;
 std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_high_intensity(new pcl::PointCloud<pcl::PointXYZI>());
 std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_low_intensity(new pcl::PointCloud<pcl::PointXYZI>());
 
-constexpr float INTENSITY_THRESH = 0.99f;
+const bool split_by_intensity = params_.reflective_intensity_threshold >= 0.0;
 
 for (const auto& p : cloud->points) {
-  if (p.intensity >= INTENSITY_THRESH) {
+  if (split_by_intensity && p.intensity >= params_.reflective_intensity_threshold) {
     cloud_high_intensity->points.push_back(p);
   } else {
     cloud_low_intensity->points.push_back(p);

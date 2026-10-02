@@ -402,14 +402,13 @@ RBLReplanner::smoothPath(const std::vector<std::tuple<int,
   std::vector<std::tuple<int, int, int>> final_smooth_path;
   final_smooth_path.push_back(_smooth_path_fwrd.back());
   size_t last_smooth_idx_bck = _smooth_path_fwrd.size() - 1;
-  for (size_t i = _smooth_path_fwrd.size() - 1; i > 0; --i) {
-    if (canConnectPoints(_smooth_path_fwrd[last_smooth_idx_bck], _smooth_path_fwrd[i], grid)) {
-      continue;
-    }
-    else {
+  // Must go all the way down to i == 0: stopping at i == 1 would append front() below without ever
+  // checking line-of-sight from the last kept vertex to it, letting the path cut straight through
+  // whatever obstacle the dropped first corner was routing around.
+  for (int i = static_cast<int>(_smooth_path_fwrd.size()) - 2; i >= 0; --i) {
+    if (!canConnectPoints(_smooth_path_fwrd[last_smooth_idx_bck], _smooth_path_fwrd[i], grid)) {
       final_smooth_path.push_back(_smooth_path_fwrd[i + 1]);
       last_smooth_idx_bck = i + 1;
-      i                   = last_smooth_idx_bck - 1;
     }
   }
   final_smooth_path.push_back(_smooth_path_fwrd.front());
@@ -874,13 +873,21 @@ bool RBLReplanner::pathInCollision(const std::vector<Eigen::Vector3d>&          
     return false;
   }
 
+  // Distance from each cloud point to each path *segment* (not just its vertices) -- after
+  // smoothPath() the path is a few long segments, so a vertex-only check misses an obstacle sitting
+  // in the middle of one.
   const double r2 = safety_radius * safety_radius;
-  for (const auto& p : path) {
-    for (const auto& pt : cloud->points) {
-      const double dx = pt.x - p.x();
-      const double dy = pt.y - p.y();
-      const double dz = pt.z - p.z();
-      if (dx * dx + dy * dy + dz * dz <= r2) {
+  for (const auto& pt : cloud->points) {
+    const Eigen::Vector3d q(pt.x, pt.y, pt.z);
+    if ((q - path.front()).squaredNorm() <= r2) {
+      return true;
+    }
+    for (size_t i = 1; i < path.size(); ++i) {
+      const Eigen::Vector3d segment    = path[i] - path[i - 1];
+      const double           seg_len_sq = segment.squaredNorm();
+      double                 t          = seg_len_sq > 1e-12 ? (q - path[i - 1]).dot(segment) / seg_len_sq : 0.0;
+      t                                 = std::clamp(t, 0.0, 1.0);
+      if ((path[i - 1] + t * segment - q).squaredNorm() <= r2) {
         return true;
       }
     }

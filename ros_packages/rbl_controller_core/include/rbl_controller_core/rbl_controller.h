@@ -94,6 +94,11 @@ struct RBLParams {
   bool                                  replanner                     = false; //if true the alg also needs garmin alt - ground truth. For replanner map does not map bellow uav at the start;
   bool                                  limited_fov                   = true;
   bool                                  ciri                          = false;
+  // Cloud points with intensity >= this are treated as other UAVs (reflective markers from
+  // filter_reflective_uavs, or agents injected by group_odoms.add_to_pcl) instead of obstacles.
+  // Negative disables the split: every point is an obstacle -- what a raw lidar cloud needs, since
+  // its intensities are sensor units, not a 0/1 reflective flag.
+  double                                reflective_intensity_threshold = -1.0;
   bool                                  add_estimates_as_voxels       = true;
   double                                inflation_bonus               = 0.0;
   // [Hz] Steady rate at which the replanner is asked for a fresh plan() (see
@@ -217,7 +222,11 @@ private:
   // through) a real obstacle.
   std::mutex                                                input_mutex_;
 
-  std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud, const Eigen::Vector3d& agent_pos, const double& altitude);
+  // Returns the reactive-controller cloud (everything below agent_z - encumbrance dropped). If
+  // `replanner_cloud` is non-null it is also filled with the same downsampled cloud, but with only
+  // the actual ground removed: the 3D replanner can route below the UAV's current height, so it
+  // must still see obstacles there.
+  std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud, const Eigen::Vector3d& agent_pos, const double& altitude, std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>* replanner_cloud = nullptr);
 std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> downSamplePcl(std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud,  // //{
                                 double                                           voxel_size);
   std::vector<Eigen::Vector3d> getpointsInsideCircle(const Eigen::Vector3d& center, const double& radius, const double& step_size);

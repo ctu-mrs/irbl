@@ -1,11 +1,16 @@
 // CUSTOM
+// filter_reflective_uavs is optional: its group-state input is only compiled in when the package
+// was found at build time (see CMakeLists.txt). RBL itself needs nothing from it.
+#ifdef RBL_WITH_FILTER_REFLECTIVE_UAVS
 #include <filter_reflective_uavs/msg/pose_velocity_array.hpp>
+#endif
 #include "rbl_controller_core/rbl_controller.h"
 #include "local_static_map.h"
 
 // Local message/service definitions (replacing mrs_msgs -- no MRS dependency of any kind)
 #include <octomap_msgs/conversions.h>
 #include <rbl_msgs/msg/float64_stamped.hpp>
+#include <rbl_msgs/msg/pose_velocity_array.hpp>
 #include <rbl_msgs/msg/reference.hpp>
 #include <rbl_msgs/msg/reference_stamped.hpp>
 #include <rbl_msgs/srv/float64_srv.hpp>
@@ -223,10 +228,15 @@ namespace rbl_controller
     SimpleSub<rbl_msgs::msg::Float64Stamped>                  sh_alt_;
     SimpleSub<sensor_msgs::msg::PointCloud2>                  sh_pcl_;
     SimpleSub<octomap_msgs::msg::Octomap>                     sh_octomap_;
-    SimpleSub<filter_reflective_uavs::msg::PoseVelocityArray> sh_group_states_;
+    SimpleSub<rbl_msgs::msg::PoseVelocityArray>               sh_group_states_;
+#ifdef RBL_WITH_FILTER_REFLECTIVE_UAVS
+    SimpleSub<filter_reflective_uavs::msg::PoseVelocityArray> sh_reflective_group_states_;
+#endif
     SimpleSub<geometry_msgs::msg::PoseArray>                  sh_sim_group_poses_;
 
-    void updateGroupStates(const filter_reflective_uavs::msg::PoseVelocityArray::ConstSharedPtr& msg);
+    // MsgT is rbl_msgs/PoseVelocityArray or filter_reflective_uavs/PoseVelocityArray (same fields).
+    template <typename MsgT>
+    void updateGroupStatesPoseVel(const std::shared_ptr<MsgT>& msg);
     void updateGroupStates(const geometry_msgs::msg::PoseArray::ConstSharedPtr& msg);
 
     // | --------------------- tf2 (replaces mrs_lib::Transformer) --------------------- |
@@ -312,6 +322,8 @@ namespace rbl_controller
     rbl_params_.limited_fov  = getParam<bool>(node_.get(), "rbl_controller.limited_fov", true);
     rbl_params_.use_map      = getParam<bool>(node_.get(), "rbl_controller.use_map", true);
     rbl_params_.ciri         = getParam<bool>(node_.get(), "rbl_controller.ciri", false);
+    rbl_params_.reflective_intensity_threshold =
+        getParam<double>(node_.get(), "rbl_controller.reflective_intensity_threshold", -1.0);
     rbl_params_.boundary_threshold       = getParam<double>(node_.get(), "rbl_controller.boundary_threshold", 0.2);
     rbl_params_.boundary_threshold_speed = getParam<double>(node_.get(), "rbl_controller.boundary_threshold_speed", 0.01);
     rbl_params_.lidar_tilt   = getParam<double>(node_.get(), "rbl_controller.lidar_tilt", 20.0);
@@ -363,6 +375,9 @@ namespace rbl_controller
     }
     else {
       sh_group_states_.subscribe(node_.get(), "~/group_states_in", qos_subs, cbkgrp_subs_);
+#ifdef RBL_WITH_FILTER_REFLECTIVE_UAVS
+      sh_reflective_group_states_.subscribe(node_.get(), "~/reflective_group_states_in", qos_subs, cbkgrp_subs_);
+#endif
     }
 
     // | ------------------------- timers ------------------------- |
@@ -481,7 +496,8 @@ namespace rbl_controller
     }
   }  // //}
 
-  void WrapperRosRBL::updateGroupStates(const filter_reflective_uavs::msg::PoseVelocityArray::ConstSharedPtr& msg)
+  template <typename MsgT>
+  void WrapperRosRBL::updateGroupStatesPoseVel(const std::shared_ptr<MsgT>& msg)
   {
     if (!msg) {
       RCLCPP_WARN(node_->get_logger(), "Received empty group states message");
@@ -699,9 +715,15 @@ namespace rbl_controller
     else {
       if (sh_group_states_.newMsg()) {
         RCLCPP_INFO_ONCE(node_->get_logger(), "Got new msg for update group states");
-        updateGroupStates(sh_group_states_.getMsg());
+        updateGroupStatesPoseVel(sh_group_states_.getMsg());
         RCLCPP_INFO_ONCE(node_->get_logger(), "Updated group states");
       }
+#ifdef RBL_WITH_FILTER_REFLECTIVE_UAVS
+      if (sh_reflective_group_states_.newMsg()) {
+        RCLCPP_INFO_ONCE(node_->get_logger(), "Got new msg for update group states (filter_reflective_uavs)");
+        updateGroupStatesPoseVel(sh_reflective_group_states_.getMsg());
+      }
+#endif
     }
 
     if (octomap_msg_) {
@@ -775,7 +797,9 @@ namespace rbl_controller
           point.x         = static_cast<float>(point_msg.x);
           point.y         = static_cast<float>(point_msg.y);
           point.z         = static_cast<float>(point_msg.z);
-          point.intensity = 1.0f;
+          // Octomap cells are static obstacles, never reflective UAV markers -- keep them below
+          // rbl_controller.reflective_intensity_threshold.
+          point.intensity = 0.0f;
           cloud->points.push_back(point);
         }
 

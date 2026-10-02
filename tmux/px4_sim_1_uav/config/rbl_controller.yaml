@@ -16,6 +16,7 @@
       limited_fov: true
       only_2d: false
       ciri: true
+      reflective_intensity_threshold: -1.0 # [-] <0: every cloud point is an obstacle (no reflective-UAV split)
       lidar_tilt: 20.0 # [deg]
       lidar_fov: 59.0 #[deg]
       step_size: 0.2

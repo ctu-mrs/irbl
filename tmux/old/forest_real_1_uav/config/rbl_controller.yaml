@@ -13,6 +13,7 @@ rbl_controller:
   limited_fov: true 
   only_2d: false
   ciri: true
+  reflective_intensity_threshold: 0.99 # points >= this are other UAVs (filter_reflective_uavs markers)
   lidar_tilt: 20.0 # [deg]
   lidar_fov: 59.0 #[deg]
   # lidar_tilt: 90.0 # [deg]

@@ -3,8 +3,8 @@
 // avoid. Replaces the MRS multirotor_simulator's combined /multirotor_simulator/uav_poses topic:
 // here, ground-truth comes straight from each vehicle's own rbl_px4_bridge odometry output.
 //
-// Publishes filter_reflective_uavs/PoseVelocityArray (the same message rbl_controller_node
-// already subscribes to on "~/group_states_in") to every UAV containing all *other* UAVs' state.
+// Publishes rbl_msgs/PoseVelocityArray on /<uav>/group_states (what rbl_controller_node's
+// "~/group_states_in" is remapped to) to every UAV, containing all *other* UAVs' state.
 
 #include <map>
 #include <stdexcept>
@@ -13,7 +13,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <filter_reflective_uavs/msg/pose_velocity_array.hpp>
+#include <rbl_msgs/msg/pose_velocity_array.hpp>
 
 namespace rbl_px4_bridge
 {
@@ -42,8 +42,8 @@ public:
           "/" + name + "/odometry", rclcpp::QoS(5),
           [this, name](const nav_msgs::msg::Odometry::SharedPtr msg) { last_odom_[name] = msg; }));
 
-      pose_vel_pub_[name] = create_publisher<filter_reflective_uavs::msg::PoseVelocityArray>(
-          "/" + name + "/filter_reflective_uavs/pose_vel", rclcpp::QoS(5));
+      pose_vel_pub_[name] = create_publisher<rbl_msgs::msg::PoseVelocityArray>(
+          "/" + name + "/group_states", rclcpp::QoS(5));
     }
 
     timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
@@ -56,7 +56,7 @@ private:
   void timerCallback()
   {
     for (const auto& target : uav_names_) {
-      filter_reflective_uavs::msg::PoseVelocityArray msg;
+      rbl_msgs::msg::PoseVelocityArray msg;
       msg.header.stamp    = now();
       msg.header.frame_id = control_frame_;
 
@@ -86,7 +86,7 @@ private:
 
   std::map<std::string, nav_msgs::msg::Odometry::SharedPtr>                              last_odom_;
   std::vector<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr>                   odom_sub_;
-  std::map<std::string, rclcpp::Publisher<filter_reflective_uavs::msg::PoseVelocityArray>::SharedPtr> pose_vel_pub_;
+  std::map<std::string, rclcpp::Publisher<rbl_msgs::msg::PoseVelocityArray>::SharedPtr> pose_vel_pub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 };
