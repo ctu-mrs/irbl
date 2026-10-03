@@ -28,5 +28,6 @@ pkill -f "group_state_relay_node" 2>/dev/null
 pkill -f "random_forest" 2>/dev/null
 pkill -f "rbl_controller_container" 2>/dev/null
 pkill -f "rviz2" 2>/dev/null
+pkill -f "foxglove_bridge" 2>/dev/null
 
 echo "px4_simulation_3uav stopped"

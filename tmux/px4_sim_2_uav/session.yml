@@ -125,10 +125,19 @@ windows:
         - export UAV_NAME=uav2; ros2 launch rbl_controller_node rbl_controller.launch.py
           uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
           pcl_topic:=/map_generator/global_cloud control_frame:=uav1/world_origin
+  - foxglove:
+      layout: tiled
+      panes:
+        # Streams the ROS topics to a browser viewer (Lichtblick / Foxglove) on ws://localhost:8765,
+        # see docker/compose.yml. Idle until a viewer connects.
+        - ros2 run foxglove_bridge foxglove_bridge --ros-args -p port:=8765
+          -p use_sim_time:=${USE_SIM_TIME:-false}
   - rviz:
       layout: tiled
       panes:
-        - rviz2 -d ./px4_sim.rviz
+        # WEB_VIZ (docker/compose.yml): no X display to show rviz2 on, use the browser viewer instead.
+        - if [ -n "$WEB_VIZ" ]; then echo "WEB_VIZ set, no rviz2 -- open http://localhost:8080";
+          else rviz2 -d ./px4_sim.rviz; fi
   - activation:
       layout: tiled
       # synchronize: after turns on tmux's synchronize-panes once these two per-pane setup lines

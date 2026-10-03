@@ -32,7 +32,7 @@ launch:
   PX4_UXRCE_DDS_NS_IDX: null    # index-based namespace uav_<idx> (same as the UXRCE_DDS_NS_IDX param);
                                 # ignored if PX4_UXRCE_DDS_NS is set. null / -1 = disabled
   PX4_UXRCE_DDS_PORT: 8888      # UDP port of the uXRCE-DDS link (the agent window listens on the same)
-  PX4_GZ_WORLD: cylinder_forest # cylinder_forest | warehouse (worlds/) | any PX4 gz world;
+  PX4_GZ_WORLD: cylinder_forest # cylinder_forest | forest | city | orchard | warehouse (worlds/) | any PX4 gz world;
                                 # ./start.sh <world> overrides this
   PX4_GZ_MODEL_POSE: null       # spawn pose "x,y,z,roll,pitch,yaw" [m, rad]; null = world origin
   PX4_HOME_LAT: null            # [deg] world origin / home; all three of LAT, LON, ALT must be set

@@ -1,0 +1,125 @@
+{
+  "configById": {
+    "3D!irbl": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 18,
+        "phi": 55,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.1,
+        "far": 5000
+      },
+      "followMode": "follow-position",
+      "followTf": "uav1/fcu",
+      "scene": { "enableStats": false, "backgroundColor": "#000000" },
+      "transforms": { "editable": false, "showLabel": false, "axisScale": 0.6 },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "layerId": "foxglove.Grid",
+          "frameId": "uav1/world_origin",
+          "size": 100,
+          "divisions": 100,
+          "lineWidth": 1,
+          "color": "#2b2b2b",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1
+        }
+      },
+      "topics": {
+        "/uav1/sensors/lidar_3d/points": {
+          "visible": true,
+          "pointSize": 1.5,
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "minValue": 0,
+          "maxValue": 6,
+          "explicitAlpha": 0.3,
+          "decayTime": 0
+        },
+        "/map_generator/global_cloud": {
+          "visible": true,
+          "pointSize": 1.5,
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "minValue": 0,
+          "maxValue": 6,
+          "explicitAlpha": 0.3
+        },
+        "/uav1/rbl_controller/cloud": {
+          "visible": true,
+          "pointSize": 4,
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "minValue": 0,
+          "maxValue": 6,
+          "explicitAlpha": 0.85
+        },
+        "/uav1/rbl_controller/inflated_map": {
+          "visible": false,
+          "pointSize": 3,
+          "colorMode": "flat",
+          "flatColor": "#ffffff26"
+        },
+        "/uav1/rbl_controller/actively_sensed_A": {
+          "visible": true,
+          "pointSize": 3,
+          "colorMode": "flat",
+          "flatColor": "#c4b5fd40"
+        },
+        "/uav1/rbl_controller/cell_a": {
+          "visible": false,
+          "pointSize": 3,
+          "colorMode": "flat",
+          "flatColor": "#c4b5fd1a"
+        },
+        "/uav1/odometry": {
+          "visible": true,
+          "type": "arrow",
+          "color": "#ffffff",
+          "showCovariance": false
+        },
+        "/uav1/rbl_controller/position": { "visible": true, "color": "#ffffff59" },
+        "/uav1/rbl_controller/target": { "visible": true, "color": "#ff2fd0" },
+        "/uav1/rbl_controller/path": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.1,
+          "gradient": ["#ff2fd0", "#ff2fd099"]
+        },
+        "/uav1/rbl_controller/replanner_waypoint": { "visible": true, "color": "#ff9be899" },
+        "/uav1/rbl_controller/centroid": { "visible": true, "color": "#c4b5fd" },
+        "/uav1/rbl_controller/seed_B": { "visible": false, "color": "#ffffff" }
+      }
+    },
+    "Plot!irbl": {
+      "title": "uav1 position",
+      "paths": [
+        { "value": "/uav1/odometry.pose.pose.position.x", "enabled": true, "timestampMethod": "receiveTime", "color": "#ff5a5f" },
+        { "value": "/uav1/odometry.pose.pose.position.y", "enabled": true, "timestampMethod": "receiveTime", "color": "#3ddc84" },
+        { "value": "/uav1/odometry.pose.pose.position.z", "enabled": true, "timestampMethod": "receiveTime", "color": "#2ec4ff" }
+      ],
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "followingViewWidth": 60,
+      "isSynced": true
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "first": "3D!irbl",
+    "second": "Plot!irbl",
+    "direction": "column",
+    "splitPercentage": 75
+  }
+}

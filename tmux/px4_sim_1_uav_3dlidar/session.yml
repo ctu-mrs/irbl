@@ -5,8 +5,8 @@
 # map_generator obstacle map, flying in the 'cylinder_forest' world (20 randomly-placed cylindrical
 # tree obstacles, same footprint/density as map_generator's defaults -- see
 # Tools/simulation/gz/worlds/cylinder_forest.sdf), no MRS system/library involved.
-# Also supports a 'warehouse' world (pallet racks, aisles, columns; worlds/generate_warehouse.py):
-# run ./start.sh warehouse.
+# Also supports the generated worlds in worlds/ (forest, city, orchard, warehouse; see worlds/README.md):
+# run ./start.sh <world>.
 root: ./
 name: px4_simulation_3dlidar
 socket_name: px4sim3dlidar
@@ -116,10 +116,19 @@ windows:
         - export UAV_NAME=$UAV_NAME; ros2 launch rbl_controller_node rbl_controller.launch.py
           uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
           pcl_topic:=/$UAV_NAME/sensors/lidar_3d/points
+  - foxglove:
+      layout: tiled
+      panes:
+        # Streams the ROS topics to a browser viewer (Lichtblick / Foxglove) on ws://localhost:8765,
+        # see docker/compose.yml. Idle until a viewer connects.
+        - ros2 run foxglove_bridge foxglove_bridge --ros-args -p port:=8765
+          -p use_sim_time:=${USE_SIM_TIME:-false}
   - rviz:
       layout: tiled
       panes:
-        - rviz2 -d ./px4_sim.rviz --ros-args -p use_sim_time:=true
+        # WEB_VIZ (docker/compose.yml): no X display to show rviz2 on, use the browser viewer instead.
+        - if [ -n "$WEB_VIZ" ]; then echo "WEB_VIZ set, no rviz2 -- open http://localhost:8080";
+          else rviz2 -d ./px4_sim.rviz --ros-args -p use_sim_time:=true; fi
   - activation:
       layout: tiled
       panes:

@@ -1,0 +1,51 @@
+# Browser visualization: the sim runs headless in `sim`, foxglove_bridge (a window in every
+# tmux/px4_sim_* session) streams its ROS topics on ws://localhost:8765, and Lichtblick
+# (open-source Foxglove Studio fork) serves the viewer on http://localhost:8080.
+#
+#   docker compose -f docker/compose.yml up -d            # from the irbl repo root
+#   docker compose -f docker/compose.yml exec sim zsh     # then: cd px4_sim_1_uav_3dlidar && ./start.sh
+#   open http://localhost:8080/?ds=foxglove-websocket&ds.url=ws://localhost:8765
+#   docker compose -f docker/compose.yml down
+#
+# For the native Gazebo GUI + rviz2 windows use docker/run.sh instead.
+
+services:
+  sim:
+    image: irbl:jazzy
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: irbl
+    environment:
+      # gz renders the 3D lidar even without its GUI, so it still needs an X display: Xvfb below
+      # (Mesa software rendering). WEB_VIZ makes the sessions skip rviz2.
+      - DISPLAY=:99
+      - WEB_VIZ=1
+      - HEADLESS=1
+    ports:
+      - "8765:8765"
+    shm_size: 1gb
+    stdin_open: true
+    tty: true
+    command: >-
+      zsh -c "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp >/dev/null 2>&1 & exec sleep infinity"
+
+  viz:
+    image: ghcr.io/lichtblick-suite/lichtblick:latest
+    container_name: irbl_viz
+    ports:
+      - "8080:8080"
+    # Colors in lichtblick_layout.json's 3D view (topics under /uav1/rbl_controller/ unless noted):
+    # (black background; everything except the obstacles is magenta/white/lavender, none of which
+    # appear in the turbo colormap, so nothing can be mistaken for an obstacle)
+    #   turbo by height (blue 0 m -> green -> yellow -> red 6 m+):
+    #           cloud (obstacles the controller uses, mostly opaque) and
+    #           /uav1/sensors/lidar_3d/points (raw lidar, faint, same scale)
+    #   white   drone: /uav1/odometry arrow + position (translucent safety sphere)
+    #   magenta target (goal, solid) + path; replanner_waypoint (light pink, translucent)
+    #   lavender actively_sensed_A (cell the drone moves in, transparent) + centroid (solid)
+    #   off by default: seed_B, cell_a, inflated_map
+    # Lichtblick only applies this default layout when the browser has none saved yet; after editing
+    # it, reset the layout in the viewer (Layouts menu) or open it in a private window.
+    volumes:
+      - ./lichtblick_layout.json:/lichtblick/default-layout.json:ro

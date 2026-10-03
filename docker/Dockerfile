@@ -2,7 +2,7 @@
 #
 # Build (from the irbl repo root, so the build context is this repo):
 #   docker build -f docker/Dockerfile -t irbl:jazzy .
-# Run: see docker/run.sh
+# Run: see docker/run.sh (X11 windows) or docker/compose.yml (browser view at localhost:8080)
 #
 # Layout inside the image mirrors what tmux/px4_sim_*/session.yml expects:
 #   /root/git/PX4-Autopilot          (session.yml's default PX4_DIR=$HOME/git/PX4-Autopilot)
@@ -49,7 +49,7 @@ RUN git init -q . \
     # Tools/simulation/gz comes from the gazebo-models fork instead of the gitlink recorded upstream
     && git submodule init \
     && git config submodule.Tools/simulation/gz.update none \
-    && git submodule update --recursive --depth 1 --jobs 8 \
+    && git submodule update --init --recursive --depth 1 --jobs 8 \
     && rm -rf Tools/simulation/gz && mkdir -p Tools/simulation/gz \
     && git -C Tools/simulation/gz init -q \
     && git -C Tools/simulation/gz remote add origin ${GZ_MODELS_REPO} \
@@ -79,6 +79,42 @@ WORKDIR /root/irbl_ws
 RUN source /opt/ros/jazzy/setup.bash \
     && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release --packages-select px4_msgs px4_ros_com
 
+# On some networks, requests to packages.ros.org / packages.osrfoundation.org carrying apt's own
+# User-Agent ("Debian APT-HTTP/...") are dropped (connection timeout) while the same request with
+# any other User-Agent goes through -- so send a different one, and retry on transient failures.
+# Placed here, not at the top, so the slow layers above stay cached; move it up if a fresh build
+# fails at the first apt-get.
+RUN printf 'Acquire::http::User-Agent "curl/8.5.0";\nAcquire::Retries "5";\nAcquire::http::Timeout "60";\n' \
+      > /etc/apt/apt.conf.d/80-network
+
+# Browser visualization (docker/compose.yml): foxglove_bridge streams ROS topics to Lichtblick, Xvfb
+# gives the headless gz server (GPU lidar rendering) an X display. Own layer to keep the cache above.
+RUN apt-get update && apt-get install -y --no-install-recommends ros-jazzy-foxglove-bridge xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------- lazypx4 (terminal GCS, ROS 2 build)
+# Edition 2024 needs Rust >= 1.85 (noble's apt rustc is older) -> rustup; r2r's bindgen needs libclang.
+# The toolchain and build intermediates are dropped afterwards, only the binary + Tools/.venv stay.
+# install.sh links ~/.local/bin/lazypx4, which isn't on PATH here, so also link /usr/local/bin.
+# ARGs declared here, not at the top: a declared ARG invalidates the cache of every RUN after it.
+ARG LAZYPX4_REPO=https://github.com/manuelboldrer/lazypx4.git
+ARG LAZYPX4_REF=47a4707d83d1a66fee22e067a78786adfa4af41f
+WORKDIR /root/git/lazypx4
+RUN apt-get update && apt-get install -y --no-install-recommends libclang-dev python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path \
+    && git init -q . \
+    && git remote add origin ${LAZYPX4_REPO} \
+    && git fetch -q --depth 1 origin ${LAZYPX4_REF} \
+    && git checkout -q FETCH_HEAD \
+    && source /opt/ros/jazzy/setup.bash \
+    && PATH=/root/.cargo/bin:$PATH install/install.sh --ros \
+    && ln -sf /root/git/lazypx4/target/release/lazypx4 /usr/local/bin/lazypx4 \
+    && find target/release -mindepth 1 -maxdepth 1 ! -name lazypx4 -exec rm -rf {} + \
+    && /root/.cargo/bin/rustup self uninstall -y
+
+# rosdep/colcon below use paths relative to the workspace.
+WORKDIR /root/irbl_ws
 COPY . /root/irbl_ws/src/irbl
 
 # filter_reflective_uavs (needs mrs_lib/ouster_ros) is optional for rbl_controller_node and not included.

@@ -25,7 +25,6 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2_sensor_msgs</depend>
 
-  <depend>Eigen3</depend>
   <depend>rbl_msgs</depend>
   <depend>octomap</depend>
   <depend>octomap_msgs</depend>

@@ -27,5 +27,6 @@ pkill -f "parameter_bridge" 2>/dev/null
 pkill -f "static_transform_publisher" 2>/dev/null
 pkill -f "rbl_controller_container" 2>/dev/null
 pkill -f "rviz2" 2>/dev/null
+pkill -f "foxglove_bridge" 2>/dev/null
 
 echo "px4_simulation_3dlidar stopped"

@@ -1,0 +1,7 @@
+# world name -> rbl_controller goal [x, y, z, yaw], read by ../activation.sh.
+# Written by generate.py; worlds not listed here (e.g. PX4's own) fall back to the
+# default goal in activation.sh.
+city: [-90.0, 36.0, 3.0, 0.0]
+forest: [-58.0, 0.0, 2.5, 0.0]
+orchard: [-60.0, 10.0, 2.0, 0.0]
+warehouse: [-28.0, 8.4, 2.5, 0.0]
