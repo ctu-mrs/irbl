@@ -224,6 +224,7 @@ namespace rbl_controller
 
     // | ----------------------- subscribers ---------------------- |
     bool                                                       octomap_msg_;
+    bool                                                       pcl_enabled_ = true;  // false: no obstacle cloud input at all
     SimpleSub<nav_msgs::msg::Odometry>                        sh_odom_;
     SimpleSub<rbl_msgs::msg::Float64Stamped>                  sh_alt_;
     SimpleSub<sensor_msgs::msg::PointCloud2>                  sh_pcl_;
@@ -331,6 +332,7 @@ namespace rbl_controller
     rbl_params_.move_centroid_to_sensed_cell =
         getParam<bool>(node_.get(), "rbl_controller.move_centroid_to_sensed_cell", false);
     octomap_msg_             = getParam<bool>(node_.get(), "rbl_controller.octomap.octomap_msg", false);
+    pcl_enabled_             = getParam<bool>(node_.get(), "rbl_controller.pcl.enable", true);
     rbl_params_.downsample_pcl = getParam<bool>(node_.get(), "rbl_controller.pcl.downsample", true);
     rbl_params_.voxel_size     = getParam<double>(node_.get(), "rbl_controller.pcl.voxel_size", 0.3);
     rbl_params_.add_estimates_as_voxels =
@@ -363,7 +365,11 @@ namespace rbl_controller
 
     sh_odom_.subscribe(node_.get(), "~/odom_in", qos_subs, cbkgrp_subs_);
     sh_alt_.subscribe(node_.get(), "~/alt_in", qos_subs, cbkgrp_subs_);
-    if (octomap_msg_) {
+    if (!pcl_enabled_) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "rbl_controller.pcl.enable = false: no obstacle cloud/octomap input, avoiding only the neighbours");
+    }
+    else if (octomap_msg_) {
       sh_octomap_.subscribe(node_.get(), "~/octomap_in", qos_subs, cbkgrp_subs_);
     }
     else {
@@ -551,7 +557,7 @@ namespace rbl_controller
     }
 
     group_states_ = std::move(updated_group_states);
-    RCLCPP_INFO(node_->get_logger(), "Passing %zu group states to RBL", group_states_.size());
+    // RCLCPP_INFO(node_->get_logger(), "Passing %zu group states to RBL", group_states_.size());
 
     {
       std::scoped_lock lck(mtx_rbl_);
@@ -601,7 +607,7 @@ namespace rbl_controller
       updated_group_states.push_back(state);
     }
 
-    RCLCPP_INFO(node_->get_logger(), "Passing %zu group states to RBL", updated_group_states.size());
+    // RCLCPP_INFO(node_->get_logger(), "Passing %zu group states to RBL", updated_group_states.size());
 
     {
       std::scoped_lock lck(mtx_rbl_);
@@ -726,7 +732,10 @@ namespace rbl_controller
 #endif
     }
 
-    if (octomap_msg_) {
+    if (!pcl_enabled_) {
+      // no obstacle cloud input: free space (+ neighbours, handled by the partition)
+    }
+    else if (octomap_msg_) {
       if (sh_octomap_.newMsg()) {
         auto msg = sh_octomap_.getMsg();
         if (!msg) {
@@ -882,20 +891,23 @@ namespace rbl_controller
       }
     }
 
-    if (!last_obstacle_cloud_) {
-      RCLCPP_WARN(node_->get_logger(), "Waiting for obstacle cloud");
-      return;
+    // No cloud received yet: keep running with an empty cloud, i.e. free space,
+    // so RBL can be activated and fly without a point cloud source.
+    if (pcl_enabled_ && !last_obstacle_cloud_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 2000,
+                           "No obstacle cloud received yet, planning WITHOUT obstacles");
     }
 
-    auto cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(*last_obstacle_cloud_);
+    auto cloud = last_obstacle_cloud_ ? std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(*last_obstacle_cloud_)
+                                      : std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+    cloud->header.frame_id = _control_frame_;
 
     if (_group_odoms_enabled_ && _add_agents_to_pcl_) {
       cloud = addAgents2PCL(cloud, group_states_, rbl_params_.voxel_size, rbl_params_.encumbrance);
     }
 
-    if (cloud->empty()) {
-      RCLCPP_ERROR(node_->get_logger(), "PCL is empty");
-      return;
+    if (pcl_enabled_ && last_obstacle_cloud_ && cloud->empty()) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 2000, "Obstacle cloud is empty, planning in free space");
     }
 
     {

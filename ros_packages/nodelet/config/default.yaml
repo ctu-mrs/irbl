@@ -47,6 +47,7 @@
       octomap:
         octomap_msg: false
       pcl:
+        enable: true # false: no obstacle cloud input (pcl_topic/octomap not subscribed), only neighbours avoided
         downsample: true
         voxel_size: 0.2
       add_estimates_as_voxels: true

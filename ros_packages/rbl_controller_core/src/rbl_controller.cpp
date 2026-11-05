@@ -505,9 +505,13 @@ RBLController::getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZ
                                    const double&                                    altitude,
                                    std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>* replanner_cloud)
 {
-  if (!cloud || cloud->size() <= 0) {
-    std::cout << "[RBLController]: PointCloud is empty. Can not clean ground" << std::endl;
-    return nullptr;
+  // No cloud (no sensor yet) = free space: the partition and the replanner both
+  // handle an empty cloud, so keep producing references instead of blocking the controller.
+  if (!cloud || cloud->empty()) {
+    if (replanner_cloud) {
+      *replanner_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+    }
+    return std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
   }
 
   if (params_.downsample_pcl) {
@@ -779,10 +783,10 @@ bool RBLController::partitionCellACiri(std::vector<Eigen::Vector3d>&            
 
   // map cloud ptr to Eigen::Matrix3Xd as input to ciri
   size_t num_points = cloud->points.size();
-  std::cout << "[RBLController]: Feeding ciri " << num_points << " points (cloud_low_intensity, after downsampling)"
-            << std::endl;
+  // std::cout << "[RBLController]: Feeding ciri " << num_points << " points (cloud_low_intensity, after downsampling)"
+  //           << std::endl;
   if (num_points == 0) {
-    std::cout << "[RBLController]: Mapping cloud ptr to Eigen::Matrix3Xd not possible, cloud is empty." << std::endl;
+    // std::cout << "[RBLController]: Mapping cloud ptr to Eigen::Matrix3Xd not possible, cloud is empty." << std::endl;
     return false;
   }
   // Safe copy of XYZ from PointXYZI to Eigen::Matrix3Xf
@@ -1053,9 +1057,9 @@ cloud_low_intensity->is_dense = true;
   else {  // 3D case
     pointsInsideSphere(cell_S, agent_pos, params_.radius, params_.step_size, altitude);
   }
-  if (group_states_.empty()) {
-      std::cout << "[RBLController]: group states empty." << std::endl;
-  }
+  // if (group_states_.empty()) {
+  //     std::cout << "[RBLController]: group states empty." << std::endl;
+  // }
   // if (!group_states_.empty() || (cloud && cloud->size() > 0)) {
     if (params_.ciri) {
       // std::cout << "[RBLController]: cell_b "<< cell_B.size() << std::endl;
@@ -1084,7 +1088,7 @@ cloud_low_intensity->is_dense = true;
       } 
 
       if (!success || cell_A.size() == 0) {
-        std::cout << "[RBLController]: Ciri failed. Using classic partition." << std::endl;
+        // std::cout << "[RBLController]: Ciri failed. Using classic partition." << std::endl;
         cell_A.clear();
         partitionCellA(cell_A, cell_S, plane_normals, plane_points, agent_pos, neighbors_pos, cloud);
         seed_b = agent_pos;
@@ -1644,7 +1648,7 @@ void RBLController::determineNextRef(rbl_msgs::msg::Reference&                p_
       p_ref.heading          = rpy[2];
       last_desired_heading_  = rpy[2];
       have_desired_heading_  = true;
-      std::cout << "[RBLController]: Arrived at goal pos" << std::endl;  // keep the same heading
+      // std::cout << "[RBLController]: Arrived at goal pos" << std::endl;  // keep the same heading
     }
     else {
       p_ref.heading = desired_heading;
