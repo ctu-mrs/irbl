@@ -1,0 +1,10 @@
+# UGV + UAV shelf inspection (ugv_uav_mission_node): the UGV carries the UAV to the aisle position
+# (shelf_x, shelf_y) and stops there; the UAV takes off from it, inspects the `side` shelf of that
+# aisle segment and hovers where it leaves the aisle; the UGV drives below it, the UAV lands on it
+# (precision landing) and is re-attached; then the UGV carries it back to where the UGV started. Positions in the shared control frame ("world").
+float64 shelf_x
+float64 shelf_y
+string side        # "left" (+y rack row of the aisle) or "right" (-y rack row)
+---
+bool success
+string message

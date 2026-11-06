@@ -27,7 +27,7 @@ pre_window:
   # symlink step just below.
   # PX4 only looks for <PX4_GZ_WORLD>.sdf in its own Tools/simulation/gz/worlds, so link this
   # folder's worlds in (idempotent; never clobbers a same-named real file).
-  - for w in ./worlds/*.sdf; do ln -sn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
+  - for w in ./worlds/*.sdf; do ln -sfn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
   # gz sim stamps the bridged 3D lidar cloud with its own sim clock (seconds since the world
   # started), not wall time -- everything that needs to resolve TF at that cloud's timestamp
   # (rviz, when Fixed Frame isn't just the cloud's own frame) has to share that same clock, or a

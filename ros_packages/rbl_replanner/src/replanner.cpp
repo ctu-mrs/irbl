@@ -202,6 +202,11 @@ void RBLReplanner::initializationPlan()  // //{
   z_max_world_point.z()             = agent_pos_.z() - altitude_ + z_max_;
   z_min_idx_                        = std::get<2>(worldCoordsToGridIdx(z_min_world_point));
   z_max_idx_                        = std::get<2>(worldCoordsToGridIdx(z_max_world_point));
+  if (params_.planar) {
+    // Only the agent's own layer is free (fillAndInflateGrid() blocks everything outside
+    // [z_min_idx_, z_max_idx_]); the [z_min_, z_max_] band is used there to select the obstacles.
+    z_min_idx_ = z_max_idx_ = std::min(std::get<2>(_agent_pos_), _Z_ - 1);
+  }
 
   auto _point = worldCoordsToGridIdx(goal_);
   int  x_goal = std::clamp(std::get<0>(_point), 0, _X_ - 1);
@@ -276,6 +281,38 @@ void RBLReplanner::fillAndInflateGrid(std::optional<VoxelGrid>&                 
 {
   int                           x, y, z;
   std::vector<std::vector<int>> idx_to_inflate;
+
+  if (params_.planar) {
+    // 2D: obstacles inside the [z_min_, z_max_] band above the ground are projected onto the
+    // agent's layer and inflated in x/y only; all other layers get blocked below.
+    const double ground_z = agent_pos_.z() - altitude_;
+    const double band_lo  = ground_z + z_min_;
+    const double band_hi  = ground_z + z_max_;
+    const int    layer    = z_min_idx_;
+    if (cloud) {
+      for (const auto& point : cloud->points) {
+        if (point.z < band_lo || point.z > band_hi) {
+          continue;
+        }
+        auto _point = worldCoordsToGridIdx(point);
+        x           = std::get<0>(_point);
+        y           = std::get<1>(_point);
+        if (x >= 0 && x < grid->X && y >= 0 && y < grid->Y) {
+          idx_to_inflate.push_back({ x, y });
+        }
+      }
+    }
+    for (const auto& idx : idx_to_inflate) {
+      for (int dx = -inflation_coeff_; dx <= inflation_coeff_; dx++) {
+        for (int dy = -inflation_coeff_; dy <= inflation_coeff_; dy++) {
+          int nx = idx[0] + dx, ny = idx[1] + dy;
+          if (nx >= 0 && nx < grid->X && ny >= 0 && ny < grid->Y) {
+            grid->at(nx, ny, layer) = 1;
+          }
+        }
+      }
+    }
+  } else {
   for (const auto& point : cloud->points) {
     auto _point = worldCoordsToGridIdx(point);
     x           = std::get<0>(_point);
@@ -306,6 +343,7 @@ void RBLReplanner::fillAndInflateGrid(std::optional<VoxelGrid>&                 
       }
     }
   }
+  }  // !planar
 
   // Hard-block every layer outside [z_min_idx_, z_max_idx_] (the [z_min_, z_max_] AGL band) --
   // z_min_idx_ alone already subsumes the old "block the ground plane at z=0" behavior whenever
@@ -540,6 +578,12 @@ bool RBLReplanner::advanceAndValidate(const std::vector<Eigen::Vector3d>& prev_p
   }
   if (advanced_path.size() < 2) {
     return false;
+  }
+  if (params_.planar) {
+    // Keep the path on the agent's layer even if its height drifted since the last plan.
+    for (auto& p : advanced_path) {
+      p.z() = agent_pos_.z();
+    }
   }
 
   // Validate every remaining vertex, and the line-of-sight between consecutive vertices, against

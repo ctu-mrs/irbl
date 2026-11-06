@@ -1,0 +1,13 @@
+# Sensor extrinsics of the UGV (models/r1_rover_carrier/model.sdf), relative to "ugv1/fcu", which
+# px4_bridge places at the UGV's x/y/yaw and at the fixed height env.sh UGV_HOME_Z (0.6 m), not at
+# the rover's base_link height. Published by publish_sensor_tf.sh as static TF.
+#
+# translation: [x, y, z] in meters (FLU), rotation: [roll, pitch, yaw] in radians.
+sensors:
+  # forward 3D lidar (same sensor as the UAV's): model.sdf mounts it 0.21 m ahead / 0.25 m above
+  # base_link (which is 0.047 m above the floor), untilted -> 0.297 m above the floor = 0.297 - 0.6
+  # below the pinned fcu frame. So the cloud keeps its real heights above the floor (floor at z 0,
+  # below rbl's floor cut). Keep in sync with model.sdf and env.sh.
+  - frame_id: ugv_lidar_link
+    translation: [0.21, 0.0, -0.303]
+    rotation: [0.0, 0.0, 0.0]

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  x500 + forward stereo depth camera, for px4_sim_warehouse_inspection_stereo.
+
+  Optics and mount follow PX4's x500_depth (OAK-D Lite, StereoOV7251: 73 deg horizontal FOV,
+  0.2 - 19.1 m), but the resolution / rate are reduced from 640x480 @ 30 Hz (~9 M points/s) to
+  160x120 @ 10 Hz (~19 k points per cloud, comparable to x500_lidar_3d's 10.8 k @ 10 Hz):
+  rbl_controller's local static map ray-casts every point of every cloud, and the full-resolution
+  cloud would stall it. Gaussian noise stands in for stereo matching error.
+
+  The session links this folder into PX4's Tools/simulation/gz/models (px4-rc.gzsim only spawns
+  from there), so <uri>x500</uri> below resolves to PX4's own x500.
+
+  Gazebo publishes (no <topic>, so model-scoped like the 3D lidar):
+    /world/<world>/model/x500_stereo_<i>/link/stereo_link/sensor/stereo_depth/depth_image
+    /world/<world>/model/x500_stereo_<i>/link/stereo_link/sensor/stereo_depth/depth_image/points
+  with frame_id "stereo_link" (x forward, y left, z up; not the optical convention).
+-->
+<sdf version='1.9'>
+  <model name='x500_stereo'>
+    <include merge='true'>
+      <uri>x500</uri>
+    </include>
+    <link name="stereo_link">
+      <pose relative_to="base_link">0.12 0 0.242 0 0 0</pose>
+      <inertial>
+        <mass>0.061</mass>
+        <inertia>
+          <ixx>0.0000460804</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0000055421</iyy><iyz>0</iyz><izz>0.0000436519</izz>
+        </inertia>
+      </inertial>
+      <visual name="stereo_visual">
+        <geometry><box><size>0.0175 0.091 0.028</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="stereo_depth" type="depth_camera">
+        <gz_frame_id>stereo_link</gz_frame_id>
+        <pose>0 0 0 0 0 0</pose>
+        <camera>
+          <horizontal_fov>1.274</horizontal_fov>
+          <image>
+            <width>160</width>
+            <height>120</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.2</near>
+            <far>19.1</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>10</update_rate>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="StereoJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>stereo_link</child>
+    </joint>
+  </model>
+</sdf>

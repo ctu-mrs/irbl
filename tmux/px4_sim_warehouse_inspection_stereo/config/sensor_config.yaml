@@ -1,0 +1,17 @@
+# Sensor extrinsics for the x500_stereo vehicle (models/x500_stereo/model.sdf), relative to the
+# flight controller ("fcu") frame = the x500's base_link. publish_sensor_tf.sh publishes each entry
+# as a static TF "<uav_name>/fcu" -> frame_id, which is what lets rbl_controller transform the depth
+# cloud (published in its own sensor frame) into control_frame. Keep in sync with model.sdf.
+#
+# translation: [x, y, z] in meters, FCU/body (FLU: x forward, y left, z up) axes.
+# rotation: [roll, pitch, yaw] in radians, applied FCU -> sensor (matches SDF's own <pose> convention).
+
+sensors:
+  # Forward stereo depth camera (OAK-D Lite StereoOV7251-like, same mount as PX4's x500_depth).
+  # Gazebo's depth_camera point cloud is NOT in the optical convention: it comes out x forward,
+  # y left, z up in the sensor frame (checked in gz sim: a box 3 m ahead / 1 m left shows up at
+  # x~2.75, y~1.0), with header.frame_id = the sensor's <gz_frame_id> "stereo_link". So no optical
+  # rotation here, just the mount offset.
+  - frame_id: stereo_link
+    translation: [0.12, 0.0, 0.242]
+    rotation: [0.0, 0.0, 0.0]

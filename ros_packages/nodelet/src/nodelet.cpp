@@ -15,6 +15,7 @@
 #include <rbl_msgs/msg/reference_stamped.hpp>
 #include <rbl_msgs/srv/float64_srv.hpp>
 #include <rbl_msgs/srv/vec4.hpp>
+#include <rbl_msgs/srv/goto_path.hpp>
 #include <mutex>
 #include <octomap_msgs/msg/octomap.hpp>
 
@@ -54,6 +55,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 // Standard CPP libs
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -138,6 +140,21 @@ namespace rbl_controller
     Eigen::Vector3d                 agent_pos_world_     = Eigen::Vector3d::Zero();
     bool                             have_agent_pos_world_ = false;
 
+    // Other agents (nav_msgs/Odometry topics, filter_agents.odom_topics) whose points are cut out
+    // of the sensor cloud before it reaches the static map and rbl -- e.g. the UAV seen by the UGV's
+    // camera. Only a filter: they are NOT added to group_states_, so the partition/cell is unchanged.
+    struct FilteredAgent
+    {
+      std::string                                            topic;
+      rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub;
+      nav_msgs::msg::Odometry::SharedPtr                       last;
+    };
+    std::vector<std::shared_ptr<FilteredAgent>> filtered_agents_;
+    std::mutex                                  mtx_filtered_agents_;
+    double                                      _filter_agents_radius_  = 0.7;
+    double                                      _filter_agents_timeout_ = 1.0;
+    void filterAgentsFromCloud(pcl::PointCloud<pcl::PointXYZI>& cloud);
+
     bool is_initialized_ = false;
     bool is_activated_   = false;
 
@@ -165,6 +182,9 @@ namespace rbl_controller
     bool cbSrvGotoPosition(const std::shared_ptr<rbl_msgs::srv::Vec4::Request>  req,
                            const std::shared_ptr<rbl_msgs::srv::Vec4::Response> res);
     rclcpp::Service<rbl_msgs::srv::Vec4>::SharedPtr srv_goto_position_;
+    bool cbSrvGotoPath(const std::shared_ptr<rbl_msgs::srv::GotoPath::Request>  req,
+                       const std::shared_ptr<rbl_msgs::srv::GotoPath::Response> res);
+    rclcpp::Service<rbl_msgs::srv::GotoPath>::SharedPtr srv_goto_path_;
 
     bool cbSrvSetBetaD(const std::shared_ptr<rbl_msgs::srv::Float64Srv::Request>  req,
                        const std::shared_ptr<rbl_msgs::srv::Float64Srv::Response> res);
@@ -349,6 +369,10 @@ namespace rbl_controller
         getParam<double>(node_.get(), "replanner.path_deviation_weight", 25.0);
     rbl_params_.forward_lock_half_angle_deg =
         getParam<double>(node_.get(), "replanner.forward_lock_half_angle_deg", 100.0);
+    rbl_params_.replanner_planar = getParam<bool>(node_.get(), "replanner.planar", false);
+    rbl_params_.planar_control   = getParam<bool>(node_.get(), "rbl_controller.planar_control", false);
+    rbl_params_.ground_cut_at_z_min =
+        getParam<bool>(node_.get(), "rbl_controller.ground_cut_at_z_min", false);
 
     {
       LocalStaticMap::Params static_map_params;
@@ -363,6 +387,33 @@ namespace rbl_controller
 
     sh_odom_.subscribe(node_.get(), "~/odom_in", qos_subs, cbkgrp_subs_);
     sh_alt_.subscribe(node_.get(), "~/alt_in", qos_subs, cbkgrp_subs_);
+
+    {
+      const auto topics = getParam<std::vector<std::string>>(node_.get(), "filter_agents.odom_topics",
+                                                             std::vector<std::string>{});
+      _filter_agents_radius_  = getParam<double>(node_.get(), "filter_agents.radius", 0.7);
+      _filter_agents_timeout_ = getParam<double>(node_.get(), "filter_agents.timeout", 1.0);
+      rclcpp::SubscriptionOptions opts;
+      opts.callback_group = cbkgrp_subs_;
+      for (const auto& topic : topics) {
+        if (topic.empty()) {
+          continue;
+        }
+        auto agent   = std::make_shared<FilteredAgent>();
+        agent->topic = topic;
+        FilteredAgent* raw = agent.get();
+        agent->sub = node_->create_subscription<nav_msgs::msg::Odometry>(
+            topic, qos_subs,
+            [this, raw](const nav_msgs::msg::Odometry::SharedPtr msg) {
+              std::scoped_lock lck(mtx_filtered_agents_);
+              raw->last = msg;
+            },
+            opts);
+        filtered_agents_.push_back(agent);
+        RCLCPP_INFO(node_->get_logger(), "Filtering agent %s out of the obstacle cloud (radius %.2f m)",
+                    topic.c_str(), _filter_agents_radius_);
+      }
+    }
     if (octomap_msg_) {
       sh_octomap_.subscribe(node_.get(), "~/octomap_in", qos_subs, cbkgrp_subs_);
     }
@@ -407,6 +458,14 @@ namespace rbl_controller
     srv_goto_position_ = node_->create_service<rbl_msgs::srv::Vec4>(
         "~/goto_out",
         std::bind(&WrapperRosRBL::cbSrvGotoPosition, this, std::placeholders::_1, std::placeholders::_2),
+        rclcpp::ServicesQoS(),
+        cbkgrp_ss_);
+
+    // global path (planned once, e.g. on a known map): followed without local replanning, see
+    // rbl_msgs/srv/GotoPath; a later ~/goto switches back to the local replanner
+    srv_goto_path_ = node_->create_service<rbl_msgs::srv::GotoPath>(
+        "~/goto_path",
+        std::bind(&WrapperRosRBL::cbSrvGotoPath, this, std::placeholders::_1, std::placeholders::_2),
         rclcpp::ServicesQoS(),
         cbkgrp_ss_);
 
@@ -860,6 +919,9 @@ namespace rbl_controller
         pcl::PointCloud<pcl::PointXYZI> tmp;
         pcl::fromROSMsg(*transformed, tmp);
 
+        // before the static map, so other agents never get stored as obstacles
+        filterAgentsFromCloud(tmp);
+
         // Merge in the bounded local static-obstacle map (see LocalStaticMap) before this cloud
         // reaches rbl_controller_ at all -- both the reactive CIRI partition and the replanner's
         // grid read from the same setPCL()'d cloud downstream, so this one merge point covers
@@ -1016,7 +1078,10 @@ namespace rbl_controller
       RCLCPP_WARN(node_->get_logger(), "%s", res->message.c_str());
     }
     else {
-      res->message = "RBL deactivated";
+      // stop publishing references: px4_bridge holds the last one (or, after an arm, its own takeoff
+      // setpoint -- a still-active rbl overrode that with its old goal on the deck: no second takeoff)
+      is_activated_ = false;
+      res->message  = "RBL deactivated";
       RCLCPP_INFO(node_->get_logger(), "%s", res->message.c_str());
     }
     return true;
@@ -1039,6 +1104,36 @@ namespace rbl_controller
 
     return true;
   }
+
+  bool WrapperRosRBL::cbSrvGotoPath(const std::shared_ptr<rbl_msgs::srv::GotoPath::Request>  req,  // //{
+                                    const std::shared_ptr<rbl_msgs::srv::GotoPath::Response> res)
+  {
+    if (req->path.poses.empty()) {
+      res->success = false;
+      res->message = "empty path";
+      return true;
+    }
+    if (!req->path.header.frame_id.empty() && req->path.header.frame_id != _control_frame_) {
+      res->success = false;
+      res->message = "path frame '" + req->path.header.frame_id + "' is not the control frame '" + _control_frame_ + "'";
+      RCLCPP_WARN(node_->get_logger(), "goto_path rejected: %s", res->message.c_str());
+      return true;
+    }
+    std::vector<Eigen::Vector3d> path;
+    path.reserve(req->path.poses.size());
+    for (const auto& p : req->path.poses) {
+      path.emplace_back(p.pose.position.x, p.pose.position.y, p.pose.position.z);
+    }
+    {
+      std::scoped_lock lck(mtx_rbl_);
+      rbl_controller_->setPath(path);
+    }
+    RCLCPP_INFO(node_->get_logger(), "RBL global path set: %zu points, goal [%.3f, %.3f, %.3f] (no local replanning)",
+                path.size(), path.back().x(), path.back().y(), path.back().z());
+    res->success = true;
+    res->message = "Path set";
+    return true;
+  }  // //}
 
   bool WrapperRosRBL::cbSrvGotoPosition(const std::shared_ptr<rbl_msgs::srv::Vec4::Request>  req,  // //{
                                         const std::shared_ptr<rbl_msgs::srv::Vec4::Response> res)
@@ -1278,6 +1373,67 @@ namespace rbl_controller
     point.y = y;
     point.z = z;
     return point;
+  }  // //}
+
+  void WrapperRosRBL::filterAgentsFromCloud(pcl::PointCloud<pcl::PointXYZI>& cloud)  // //{
+  {
+    if (filtered_agents_.empty() || cloud.empty()) {
+      return;
+    }
+
+    std::vector<std::pair<std::string, nav_msgs::msg::Odometry::SharedPtr>> latest;
+    {
+      std::scoped_lock lck(mtx_filtered_agents_);
+      for (const auto& agent : filtered_agents_) {
+        latest.emplace_back(agent->topic, agent->last);
+      }
+    }
+
+    const rclcpp::Time           now = clock_->now();
+    std::vector<Eigen::Vector3d> centers;
+    for (const auto& [topic, odom] : latest) {
+      if (!odom) {
+        continue;
+      }
+      const double age = (now - rclcpp::Time(odom->header.stamp, now.get_clock_type())).seconds();
+      if (age > _filter_agents_timeout_) {
+        RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 5000,
+                             "filter_agents: odometry of %s is %.1f s old, not filtering it", topic.c_str(), age);
+        continue;
+      }
+      geometry_msgs::msg::PointStamped pt;
+      pt.header = odom->header;
+      pt.point  = odom->pose.pose.position;
+      auto res  = transformPoint(pt, _control_frame_);
+      if (res) {
+        centers.push_back(pointToEigen(res->point));
+      }
+    }
+    if (centers.empty()) {
+      return;
+    }
+
+    const double r2     = _filter_agents_radius_ * _filter_agents_radius_;
+    const auto   before = cloud.size();
+    auto&        pts    = cloud.points;
+    pts.erase(std::remove_if(pts.begin(), pts.end(),
+                             [&](const pcl::PointXYZI& p) {
+                               for (const auto& c : centers) {
+                                 const double dx = p.x - c.x(), dy = p.y - c.y(), dz = p.z - c.z();
+                                 if (dx * dx + dy * dy + dz * dz < r2) {
+                                   return true;
+                                 }
+                               }
+                               return false;
+                             }),
+              pts.end());
+    cloud.width    = static_cast<uint32_t>(pts.size());
+    cloud.height   = 1;
+    cloud.is_dense = false;
+    if (pts.size() != before) {
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), *clock_, 2000, "filter_agents: removed %zu points of other agents",
+                           before - pts.size());
+    }
   }  // //}
 
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>

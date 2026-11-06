@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rbl_mission</name>
+  <version>0.0.0</version>
+  <description>
+    Mission layer on top of the unchanged rbl_controller_node: sequences its ~/goto goals into
+    tasks. warehouse_inspection_node flies to a requested aisle position, scans the shelf there
+    with a boustrophedon coverage pattern built from a prior map, then returns to where it started.
+    ugv_uav_mission_node: a UGV carries the UAV to the aisle, the UAV takes off from it and
+    inspects the shelf while the UGV moves on to the next aisle (srv/Deploy). mission_viz_node: a simplified
+    rviz picture of the two vehicles and the warehouse.
+  </description>
+  <maintainer email="manuel.boldrer@gmail.com">Manuel Boldrer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <depend>rclcpp</depend>
+  <depend>rbl_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tinyxml2_vendor</depend>
+  <depend>visualization_msgs</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

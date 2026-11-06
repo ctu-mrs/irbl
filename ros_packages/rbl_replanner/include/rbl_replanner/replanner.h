@@ -152,6 +152,12 @@ struct ReplannerParams {
   // keeps the local horizon being pushed out towards the goal even when nothing is blocking the
   // path already known within it.
   double                                                    progress_threshold    = 0.5;
+  // 2D mode for ground vehicles: A* runs on the single grid layer at the agent's own height. Every
+  // obstacle point whose height above the ground (agent z - altitude) lies within [z_min, z_max] is
+  // projected onto that layer (anything below/above the band -- floor, overhangs the vehicle passes
+  // under -- is ignored), inflation is applied in x/y only, and the goal is planned towards at the
+  // agent's height. The returned path therefore stays at the agent's z.
+  bool                                                      planar                = false;
 };
 
 // Discrete, obstacle-inflated 3D grid A* planner. Safety comes entirely from the grid: any cell

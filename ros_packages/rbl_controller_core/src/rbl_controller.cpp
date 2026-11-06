@@ -21,6 +21,7 @@ RBLController::RBLController(const RBLParams& params) : params_(params)  // //{
     replanner_params.path_deviation_distance      = params.path_deviation_distance;
     replanner_params.path_deviation_weight        = params.path_deviation_weight;
     replanner_params.forward_lock_half_angle_deg  = params.forward_lock_half_angle_deg;
+    replanner_params.planar                       = params.replanner_planar;
 
     rbl_replanner_ = std::make_shared<RBLReplanner>(replanner_params);
   }
@@ -73,6 +74,32 @@ void RBLController::setGoal(const Eigen::Vector3d& point)  // //{
   destination_ = point;
   ph_          = 0.0;
   th_          = 0.0;
+  // back to the local replanner: drop the global path, it belongs to another goal
+  clear_path_         = clear_path_ || global_path_active_;
+  global_path_active_ = false;
+  new_global_path_    = false;
+}  // //}
+
+void RBLController::setPath(const std::vector<Eigen::Vector3d>& path)  // //{
+{
+  if (path.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  goal_               = path.back();
+  destination_        = path.back();
+  ph_                 = 0.0;
+  th_                 = 0.0;
+  pending_path_       = path;
+  new_global_path_    = true;
+  global_path_active_ = true;
+  clear_path_         = false;
+}  // //}
+
+bool RBLController::globalPathActive()  // //{
+{
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  return global_path_active_;
 }  // //}
 
 void RBLController::setBetaD(double beta)
@@ -195,6 +222,10 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   double                                             altitude_snapshot;
   Eigen::Vector3d                                   rpy_snapshot;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> cloud_snapshot;
+  bool                                             global_active;
+  bool                                             new_global = false;
+  bool                                             clear_path;
+  std::vector<Eigen::Vector3d>                     new_global_path;
   {
     std::lock_guard<std::mutex> lock(input_mutex_);
     agent_pos_snapshot = agent_pos_;
@@ -202,11 +233,22 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
     altitude_snapshot   = altitude_;
     rpy_snapshot         = rpy_;
     cloud_snapshot       = cloud_;
+    global_active        = global_path_active_;
+    if (new_global_path_) {
+      new_global_path.swap(pending_path_);
+      new_global       = true;
+      new_global_path_ = false;
+    }
+    clear_path  = clear_path_;
+    clear_path_ = false;
   }
+  // the local replanner runs only while no global path is being followed
+  const bool local_replanner = params_.replanner && !global_active;
+  const bool follow_path     = params_.replanner || global_active;
 
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> replanner_cloud;
   cloud_snapshot = getGroundCleanCloud(cloud_snapshot, agent_pos_snapshot, altitude_snapshot,
-                                       params_.replanner ? &replanner_cloud : nullptr);
+                                       local_replanner ? &replanner_cloud : nullptr);
   // cloud_obs_ = getGroundCleanCloud(cloud_obs_, agent_pos_, altitude_);
   if (!cloud_snapshot) {
     return std::nullopt;
@@ -216,7 +258,23 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
     cloud_ = cloud_snapshot;
   }
 
-  if (params_.replanner) {
+  if (global_active) {
+    // global path mode: a local plan still in flight belongs to an older goal -> discard it
+    if (replanner_future_.valid() &&
+        replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+      replanner_future_.get();
+    }
+    if (new_global) {
+      std::lock_guard<std::mutex> lock(replanner_mutex_);
+      path_     = new_global_path;
+      waypoint_ = agent_pos_snapshot;  // the lookahead restarts from here along the new path
+      inflated_map_.clear();
+    }
+  } else if (local_replanner) {
+    if (clear_path) {
+      std::lock_guard<std::mutex> lock(replanner_mutex_);
+      path_.clear();
+    }
 
     if (replanner_future_.valid() &&
         replanner_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
@@ -225,7 +283,21 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
       path_ = replanner_future_.get();   // latch new path
     }
 
-    const bool path_blocked = RBLReplanner::pathInCollision(path_, replanner_cloud, params_.encumbrance);
+    bool path_blocked;
+    if (params_.replanner_planar && replanner_cloud) {
+      // 2D replanner: check the path in the plane (band obstacles and path both at the agent's height).
+      auto flat_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(*replanner_cloud);
+      for (auto& pt : flat_cloud->points) {
+        pt.z = agent_pos_snapshot.z();
+      }
+      std::vector<Eigen::Vector3d> flat_path = path_;
+      for (auto& p : flat_path) {
+        p.z() = agent_pos_snapshot.z();
+      }
+      path_blocked = RBLReplanner::pathInCollision(flat_path, flat_cloud, params_.encumbrance);
+    } else {
+      path_blocked = RBLReplanner::pathInCollision(path_, replanner_cloud, params_.encumbrance);
+    }
 
     if ((rbl_replanner_->replanTimer() || path_blocked) &&
         (!replanner_future_.valid() ||
@@ -250,8 +322,10 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
         return new_path;
       });
     }
+  }
 
-    // Use path if available, otherwise keep moving
+  if (follow_path) {
+    // Use path if available (local replanner's or the global one), otherwise keep moving
     if (!path_.empty()) {
       waypoint_fixed_distance_ = determineWaypointFixedDistance(path_, agent_pos_snapshot, goal_snapshot);
       waypoint_                = determineWaypoint(path_, agent_pos_snapshot, goal_snapshot, waypoint_);
@@ -293,6 +367,10 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   //   destination_             = waypoint_;
   // }
 
+  if (params_.planar_control) {  // no vertical pull on the centroid (the cell itself stays 3D)
+    destination_.z() = agent_pos_snapshot.z();
+  }
+
   std::vector<Eigen::Vector3d> group_positions;
   for (const auto& state : group_states_) {
     group_positions.push_back(state.position);
@@ -319,7 +397,7 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
 
 
   std::vector<Eigen::Vector3d> emptyVec;
-  if (params_.replanner) {
+  if (follow_path) {
     computeCentroid(c1_full_,
                     agent_pos_,
                     agent_vel_,
@@ -435,6 +513,9 @@ std::optional<rbl_msgs::msg::Reference> RBLController::getNextRef()  // //{
   // }
   // if c1_ is very close to uav.
   determineNextRef(p_ref, agent_pos_, waypoint_, goal_, c1_, c1_full_, rpy_, path_);
+  if (params_.planar_control) {
+    p_ref.position.z = agent_pos_.z();
+  }
 
   return p_ref;
 }  // //}
@@ -493,7 +574,7 @@ std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>> RBLController::getPCL()
 
 std::vector<Eigen::Vector3d> RBLController::getPath()  // //{
 {
-  if (params_.replanner) {
+  if (params_.replanner || globalPathActive()) {
     return path_;
   }
   return {};
@@ -529,8 +610,14 @@ RBLController::getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZ
   pcl::PointCloud<pcl::PointXYZI> temp_no_ground_cloud;
   temp_no_ground_cloud.reserve(cloud->points.size());
 
+  // Partition cloud without the ground. Default: everything more than `encumbrance` below the agent
+  // is ground. ground_cut_at_z_min: the cell's own lower bound z_min is the ground cut (the cell never
+  // reaches below it, so nothing below it may cut the cell; everything above it does).
+  const double cut_z = params_.ground_cut_at_z_min
+                           ? (params_.use_garmin_alt ? agent_pos.z() - altitude + params_.z_min : params_.z_min)
+                           : agent_pos.z() - params_.encumbrance;
   for (const auto& pt : cloud->points) {
-    if (pt.z > (agent_pos.z() - params_.encumbrance)) {
+    if (pt.z > cut_z) {
       temp_no_ground_cloud.push_back(pt);
     }
   }
@@ -545,7 +632,12 @@ RBLController::getGroundCleanCloud(std::shared_ptr<pcl::PointCloud<pcl::PointXYZ
     auto             terrain_clean             = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
     terrain_clean->reserve(cloud->points.size());
     for (const auto& pt : cloud->points) {
-      if (pt.z > ground_z + kReplannerGroundTolerance) {
+      if (params_.replanner_planar) {
+        // 2D replanner: only the [z_min, z_max] band above the ground is an obstacle.
+        if (pt.z >= ground_z + params_.z_min && pt.z <= ground_z + params_.z_max) {
+          terrain_clean->push_back(pt);
+        }
+      } else if (pt.z > ground_z + kReplannerGroundTolerance) {
         terrain_clean->push_back(pt);
       }
     }
@@ -1547,36 +1639,47 @@ Eigen::Vector3d RBLController::determineWaypoint(const std::vector<Eigen::Vector
     return path.back();
   }
 
-  double          dist_agent_goal = (goal - agent_pos).norm();
-  // Eigen::Vector3d closest_point   = path[closest_point_index];
-  Eigen::Vector3d next_point      = path[closest_point_index + 1];
-  // Eigen::Vector3d direction_vector = (next_point - closest_point) / (next_point - closest_point).norm();
-  Eigen::Vector3d direction_vector      = (next_point - agent_pos) / (next_point - agent_pos).norm();
-  double          dist_agent_next_point = (next_point - agent_pos).norm();
-  // std::cout << "[RBLController]: Distance agent to next point on path: " << dist_agent_next_point << std::endl;
-  // Eigen::Vector3d waypoint;
-  // if (params_.ciri) {
-  //   waypoint = next_point;
-  // } else {
-  //   waypoint = closest_point + direction_vector * std::min(params_.radius, dist_agent_goal);
-  // }
-  // waypoint = closest_point + a * std::min(params_.radius, dist_agent_goal);
-
-  // waypoint = agent_pos + direction_vector * std::min(params_.radius, dist_agent_next_point);
-  double tmp_min = std::min(params_.radius, dist_agent_next_point);
-  if (dist_agent_goal > params_.radius) {
-    // waypoint = agent_pos + direction_vector * std::max(tmp_min,params_.radius);
-    waypoint = waypoint + 2 * params_.dt *
-                              (agent_pos + direction_vector * std::max(tmp_min, params_.radius / 2) - waypoint) /
-                              (agent_pos + direction_vector * std::max(tmp_min, params_.radius / 2) - waypoint).norm();
+  (void)goal;
+  // Lookahead point ON the path (pure pursuit): project the agent onto the nearest path segment and
+  // walk radius/2 along the path from there. (It used to be agent + radius/2 * the direction from the
+  // agent to the next path vertex: with the agent off the path sideways -- a rover overshooting a
+  // corner -- that direction is mostly lateral and the point landed inside the obstacles the path goes
+  // around, e.g. in the rack row next to an aisle corner; CIRI then kept the centroid out of there,
+  // the heading flipped and the UGV oscillated at the corner.)
+  size_t seg = 0;
+  double seg_t = 0.0, best = std::numeric_limits<double>::max();
+  for (size_t i = 0; i + 1 < path.size(); ++i) {
+    const Eigen::Vector3d d  = path[i + 1] - path[i];
+    const double          dd = d.squaredNorm();
+    const double          t  = dd > 1e-12 ? std::clamp((agent_pos - path[i]).dot(d) / dd, 0.0, 1.0) : 0.0;
+    const double          e  = (path[i] + t * d - agent_pos).squaredNorm();
+    if (e < best) {
+      best  = e;
+      seg   = i;
+      seg_t = t;
+    }
   }
-  else {
-    // waypoint = agent_pos + direction_vector * std::max(tmp_min, dist_agent_goal);
-    // waypoint = agent_pos + direction_vector * std::min(params_.radius, dist_agent_next_point);
-    waypoint = waypoint +
-               2 * params_.dt *
-                   (agent_pos + direction_vector * std::min(params_.radius, dist_agent_next_point) - waypoint) /
-                   (agent_pos + direction_vector * std::min(params_.radius, dist_agent_next_point) - waypoint).norm();
+  double          left   = params_.radius / 2;
+  Eigen::Vector3d target = path.back();
+  Eigen::Vector3d from   = path[seg] + seg_t * (path[seg + 1] - path[seg]);
+  for (size_t i = seg; i + 1 < path.size(); ++i) {
+    const Eigen::Vector3d to = path[i + 1];
+    const double          l  = (to - from).norm();
+    if (l >= left) {
+      target = from + (to - from) * (left / l);
+      break;
+    }
+    left -= l;
+    from = to;
+  }
+
+  // rate-limited towards it (as before), without dividing by ~0 once there
+  const Eigen::Vector3d step = target - waypoint;
+  const double          max_step = 2 * params_.dt;
+  if (step.norm() <= max_step) {
+    waypoint = target;
+  } else {
+    waypoint += step * (max_step / step.norm());
   }
 
   return waypoint;

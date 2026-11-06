@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UGV of px4_sim_ugv_uav_warehouse: PX4's r1_rover (differential drive, 0.4 x 0.4 m body, deck at
+  ~0.32 m above the floor) plus
+
+  - lidar_3d_link: forward 3D lidar, the same sensor as the UAV's (x500_lidar_3d livox_link: Hesai
+    JT128-style forward hemisphere, 180 deg x 90 deg, ~1 deg/sample, 0.5-40 m, 10 Hz), untilted, on
+    the front face 0.21 m ahead / 0.25 m above base_link (~0.30 m above the floor): the floor shows
+    up from ~0.3 m ahead (-45 deg). Its 0.5 m minimum range keeps the carried UAV's propellers
+    (~0.38 m from it) out of the cloud.
+    Gazebo topic: /world/<world>/model/<name>/link/lidar_3d_link/sensor/lidar_3d/scan/points
+    (frame_id "ugv_lidar_link": TF frames are global, the UAV already has a "livox_link").
+    It is the UGV rbl_controller's pcl_topic (3D, like the UAV's lidar).
+
+  - landing_marker: ArUco marker (DICT_4X4_50, id 0, 0.30 m: PX4's arucotag texture) on a 0.40 m
+    white plate, on top of the deck (the 0.275 m collision box top the UAV rests on, above the
+    visual meshes) -- the target of the UAV's PX4 precision landing (down camera + VTE).
+
+  - DetachableJoint: holds the UAV model (x500_lidar_3d_cam_down_1 = PX4 instance 1) fixed on the deck as
+    soon as it is spawned (retries until it exists); publishing gz.msgs.Empty on /ugv1/uav_detach
+    releases it (the mission does that right before the UAV arms), /ugv1/uav_attach re-attaches.
+
+  The session links this folder into PX4's Tools/simulation/gz/models (px4-rc.gzsim only spawns
+  from there), so <uri>r1_rover</uri> below resolves to PX4's own r1_rover. Its wheel plugins use
+  model-relative topics, so the renamed model drives exactly like r1_rover.
+-->
+<sdf version='1.9'>
+  <model name='r1_rover_carrier'>
+    <include merge='true'>
+      <uri>model://r1_rover</uri>
+    </include>
+
+    <link name="lidar_3d_link">
+      <pose relative_to="base_link">0.21 0 0.25 0 0 0</pose>
+      <inertial>
+        <mass>0.265</mass>
+        <inertia><ixx>1e-4</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
+      </inertial>
+      <visual name="lidar_visual">
+        <geometry><cylinder><radius>0.03</radius><length>0.05</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse><specular>0.3 0.3 0.3 1</specular></material>
+      </visual>
+      <sensor name="lidar_3d" type="gpu_lidar">
+        <gz_frame_id>ugv_lidar_link</gz_frame_id>
+        <update_rate>10</update_rate>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>180</samples>
+              <resolution>1</resolution>
+              <min_angle>-1.570796</min_angle>
+              <max_angle>1.570796</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>60</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.785398</min_angle>
+              <max_angle>0.785398</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.5</min>
+            <max>40.0</max>
+            <resolution>0.02</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+    <joint name="lidar_3d_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_3d_link</child>
+    </joint>
+
+    <link name="landing_marker">
+      <pose relative_to="base_link">0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia>
+      </inertial>
+      <visual name="marker_plate">
+        <pose>0 0 0.277 0 0 0</pose>
+        <geometry><box><size>0.40 0.40 0.004</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+      </visual>
+      <visual name="marker">
+        <pose>0 0 0.2795 0 0 0</pose>
+        <geometry><plane><normal>0 0 1</normal><size>0.30 0.30</size></plane></geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <pbr><metal><albedo_map>model://arucotag/arucotag.png</albedo_map></metal></pbr>
+        </material>
+      </visual>
+    </link>
+    <joint name="landing_marker_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>landing_marker</child>
+    </joint>
+
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>x500_lidar_3d_cam_down_1</child_model>
+      <child_link>base_link</child_link>
+      <detach_topic>/ugv1/uav_detach</detach_topic>
+      <attach_topic>/ugv1/uav_attach</attach_topic>
+      <suppress_child_warning>true</suppress_child_warning>
+    </plugin>
+  </model>
+</sdf>

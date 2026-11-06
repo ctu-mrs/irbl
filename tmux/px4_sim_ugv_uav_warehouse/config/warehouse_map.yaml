@@ -1,0 +1,75 @@
+# Prior map of worlds/warehouse.sdf + coverage settings, loaded by rbl_mission's
+# warehouse_inspection_node (see the `mission` window in session.yml).
+# Everything is in the control frame (uav1/world_origin = gz world origin = UAV spawn point,
+# x forward, y left, z up, metres). Values mirror worlds/worldgen/worlds/warehouse.py -- regenerate
+# that world with a different layout and this file must follow.
+#
+# The rack rows run along x. Between two neighbouring rows is an aisle; the cross-aisles at
+# x = -16.5, 0, 16.5 cut every aisle into 4 segments. A "shelf" is one rack face seen from one
+# aisle segment, on the left (+y rack row) or right (-y rack row) side of the aisle.
+#
+#   aisle id      1      2     3     4     5     6     7      (4 = main aisle, UAV spawns in it at x=0)
+#   centre y    -12.6  -8.4  -4.2   0.0   4.2   8.4  12.6
+#   segment id    1: x -33..-18   2: x -15..-1.5   3: x 1.5..15   4: x 18..33
+/**:
+  ros__parameters:
+    map:
+      rack_depth: 1.2          # [m] rack depth along y (rack row centre +- depth/2 = its two faces)
+      rack_height: 4.65        # [m] 4.5 m racks + cartons on the top shelf (up to ~4.65 m)
+      aisle_half_width: 1.5    # [m] a requested position must be this close to an aisle centreline
+      cross_aisle_reach: 2.0   # [m] ... and at most this far along x outside a rack segment (cross-aisle)
+      aisle_y:         [-12.6, -8.4, -4.2, 0.0, 4.2, 8.4, 12.6]
+      aisle_left_row:  [-10.5, -6.3, -2.1, 2.1, 6.3, 10.5, 14.7]    # rack row centre at +y of each aisle
+      aisle_right_row: [-14.7, -10.5, -6.3, -2.1, 2.1, 6.3, 10.5]   # rack row centre at -y of each aisle
+      segment_x_min: [-33.0, -15.0, 1.5, 18.0]
+      segment_x_max: [-18.0, -1.5, 15.0, 33.0]
+      cross_aisle_x: [-34.0, -16.5, 0.0, 16.5, 34.0]   # passages across the rack rows: the 3 cross-aisles
+                                                      # and the 2 m strips along the end walls (UGV routes)
+      # every collision shape in this world (racks, cartons, pallets, box stacks, columns, walls) is an
+      # obstacle the goals must keep coverage.clearance from -- except the temporary ones (models named
+      # temp_obstacle*: the small red crates in the main aisle), which stay out of this prior map
+      # (global UGV path, coverage plan) and are left to the onboard sensors / rbl. Relative to the session folder;
+      # session.yml passes the absolute path of the world actually running.
+      world_sdf: worlds/warehouse.sdf
+
+    coverage:
+      standoff: 1.2            # [m] nominal distance scan lane <-> scanned rack face (aisle is 3 m wide)
+      standoff_max: 1.8        # [m] lane band: a sample blocked on the lane may move away from the face up
+                               # to this (and towards it down to `clearance`), never further
+      levels: [1.0, 2.2, 3.4]  # [m] pass heights, one pass along the shelf per level (boustrophedon)
+      end_margin: 1.0          # [m] start/stop each pass this far inside the segment's ends
+      sample_step: 0.25        # [m] each pass is checked against the obstacles at this spacing
+      waypoint_spacing: 3.0    # [m] goal spacing on straight, clear stretches of a pass
+      clearance: 0.7           # [m] min distance of every goal / coverage segment from every obstacle in
+                               # map.world_sdf. Aisles keep >= 1.6 m free width next to pallets, keep <= 0.8
+      search_dz: 0.6           # [m] a blocked sample may change height by this much (then: hop over)
+      entry_search: 1.5        # [m] how far along the aisle the entry / exit goals may move to get clear
+      z_min: 0.6               # [m] height limits of every goal and every routed leg
+      z_max: 3.8               # [m] stays below the rack tops: the UAV never goes over a shelf (must be
+                               # < rack_height - clearance; rbl_controller's own z_max is 4.0 in
+                               # config/rbl_controller.yaml so its replanner can't route over them either)
+
+    planner:
+      mode: global             # global: each UGV leg is planned ONCE, start -> goal, by A* on this map (the
+                               # world_sdf obstacles) and followed by rbl_controller (~/goto_path) without its
+                               # local replanner; the UAV's coverage legs (already planned on this map) too.
+                               # local: rbl_controller ~/goto + its local replanner (UGV: aisle-grid route).
+                               # env.sh PLANNER overrides this (session.yml passes it to both mission nodes)
+      resolution: 0.2          # [m] grid cell of the UGV planner
+      ugv_clearance: 0.6       # [m] min planar distance UGV path <-> obstacles (rbl encumbrance is 0.45)
+      ugv_preferred_clearance: 1.2  # [m] closer than this costs extra: keeps to the middle of the aisles
+      clearance_weight: 2.0
+      ugv_z_lo: 0.05           # [m] obstacles overlapping this height band block the UGV (rover + carried UAV)
+      ugv_z_hi: 1.0
+      sample_spacing: 0.5      # [m] spacing of the path points sent to rbl_controller
+
+    mission:
+      tolerance: 0.6           # [m] 3D arrival tolerance at stops (aisle position, pass ends, home)
+      tolerance_pass: 1.0      # [m] tolerance for intermediate pass-through goals
+      timeout_base: 30.0       # [s] per-goal timeout = base + per_meter * distance; on timeout the
+      timeout_per_meter: 4.0   # [s/m] goal is skipped (logged) and the mission moves on
+      min_altitude: 1.5        # [m] ~/inspect is rejected until px4_bridge's auto-takeoff is above this
+      return_to_start: false   # the UAV ends hovering where it left the aisle; ugv_uav_mission_node then
+                               # sends the UGV below it (PICKUP) and lands it there (precision landing).
+                               # Its own mission.* parameters (defaults in src/ugv_uav_mission_node.cpp)
+                               # can be set here too, e.g. precland_speed, precland_xy_tolerance

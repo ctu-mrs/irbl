@@ -1,0 +1,31 @@
+# Sensor extrinsics for the x500_lidar_3d airframe, relative to the flight controller ("fcu")
+# frame -- i.e. base_link in PX4-gazebo-models' Tools/simulation/gz/models/x500_lidar_3d/model.sdf,
+# which is the origin every sensor link in that model is mounted relative to. Values below are
+# copied directly from that model.sdf so the published TF matches the simulated mount exactly;
+# if you re-tilt/re-position a sensor there, update the matching entry here to keep them in sync.
+#
+# publish_sensor_tf.sh (same folder) reads this file and publishes each entry as a static TF via
+# `ros2 run tf2_ros static_transform_publisher`, parented on "<uav_name>/fcu" (the frame
+# px4_bridge_node broadcasts live from vehicle odometry) so tf2 can chain sensor_frame -> fcu ->
+# control_frame -- which is what lets rbl_controller_node's "~/pcl_in" transform a real sensor's
+# point cloud (published in its own sensor frame) into control_frame automatically.
+#
+# translation: [x, y, z] in meters, FCU/body (FLU: x forward, y left, z up) axes.
+# rotation: [roll, pitch, yaw] in radians, applied FCU -> sensor (matches SDF's own <pose> convention).
+
+sensors:
+  # 3D scanning lidar (Livox Mid-360-like). Feeds pcl_topic for obstacle avoidance/planning --
+  # this is the one entry publish_sensor_tf.sh's default use actually depends on.
+  # Mounted level (no tilt) for now, aligned with fcu axes, while debugging a transform/input
+  # issue in rbl_controller -- was 25 deg forward-down pitch ([0.0, 0.4363, 0.0]), which redirects
+  # more of the sensor's native upward-biased vertical FOV towards the forward-down hemisphere.
+  - frame_id: livox_link
+    translation: [0.12, 0.0, -0.02]
+    rotation: [0.0, 0.0, 0.0]
+
+  # Down-facing single-beam LW20 rangefinder. Not consumed via TF/ROS in this stack today (PX4
+  # fuses it internally into EKF2, see custom_config.yaml's EKF2_RNG_CTRL) -- included here so the
+  # full sensor suite's extrinsics live in one documented place.
+  - frame_id: lidar_sensor_link
+    translation: [0.0, 0.0, -0.05]
+    rotation: [0.0, 1.5708, 0.0]  # 90 deg pitch: sensor's forward ray axis points straight down

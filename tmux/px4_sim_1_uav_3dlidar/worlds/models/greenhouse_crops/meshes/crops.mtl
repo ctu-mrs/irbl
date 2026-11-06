@@ -1,0 +1,128 @@
+newmtl stem
+Ka 0.198 0.312 0.108
+Kd 0.330 0.520 0.180
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl leaf
+Ka 0.096 0.270 0.072
+Kd 0.160 0.450 0.120
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl leaf2
+Ka 0.132 0.330 0.096
+Kd 0.220 0.550 0.160
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl leaf_dark
+Ka 0.060 0.192 0.048
+Kd 0.100 0.320 0.080
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl tomato_red
+Ka 0.510 0.048 0.030
+Kd 0.850 0.080 0.050
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl tomato_orange
+Ka 0.570 0.270 0.048
+Kd 0.950 0.450 0.080
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl tomato_green
+Ka 0.270 0.420 0.120
+Kd 0.450 0.700 0.200
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl cucumber
+Ka 0.072 0.228 0.060
+Kd 0.120 0.380 0.100
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl flower
+Ka 0.588 0.510 0.060
+Kd 0.980 0.850 0.100
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl pepper_red
+Ka 0.480 0.030 0.030
+Kd 0.800 0.050 0.050
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl pepper_yellow
+Ka 0.588 0.480 0.030
+Kd 0.980 0.800 0.050
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl pepper_orange
+Ka 0.588 0.300 0.030
+Kd 0.980 0.500 0.050
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl pepper_green
+Ka 0.120 0.300 0.072
+Kd 0.200 0.500 0.120
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl strawberry
+Ka 0.510 0.036 0.060
+Kd 0.850 0.060 0.100
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl strawberry_unripe
+Ka 0.510 0.540 0.420
+Kd 0.850 0.900 0.700
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+
+newmtl slab
+Ka 0.540 0.540 0.516
+Kd 0.900 0.900 0.860
+Ks 0.05 0.05 0.05
+Ns 10
+d 1.0
+illum 2
+

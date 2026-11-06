@@ -1,0 +1,19 @@
+# PX4 parameters of the UGV (instance 0, r1_rover_carrier), pushed at runtime by
+# set_px4_params.sh (`param set`), same mechanism as the other sessions. Indoor tuning of the
+# 4009_gz_r1_rover defaults: slower, gentler (it carries the UAV on its deck), tighter arrival.
+
+failsafe:
+  NAV_DLL_ACT: 0           # no GCS link in this stack (uXRCE-DDS only): don't block arming / failsafe
+  COM_RC_IN_MODE: 4        # no manual control source at all (offboard only)
+  NAV_RCL_ACT: 0           # (no RC) never trigger an RC-loss failsafe
+  COM_OF_LOSS_T: 1.0       # [s] offboard stream timeout (px4_bridge streams at 20 Hz)
+  COM_OBL_RC_ACT: 5        # offboard loss -> hold
+  COM_ARM_WO_GPS: 1
+
+rover:
+  RO_SPEED_LIM: 1.0        # [m/s] (default 2) indoor, with a UAV on the deck
+  RO_ACCEL_LIM: 1.0        # [m/s^2] (default 5) gentle, so the carried UAV isn't shaken
+  RO_DECEL_LIM: 2.0        # [m/s^2] (default 10)
+  RO_JERK_LIM: 5.0         # [m/s^3] (default 30)
+  RO_YAW_RATE_LIM: 90.0    # [deg/s] (default 180)
+  NAV_ACC_RAD: 0.2         # [m] (default 0.5) rbl's references are close ahead, stop only near them

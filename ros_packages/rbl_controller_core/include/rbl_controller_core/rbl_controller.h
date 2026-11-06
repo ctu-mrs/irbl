@@ -123,6 +123,15 @@ struct RBLParams {
   double                                path_deviation_weight         = 25.0;
   // Forwarded to ReplannerParams::forward_lock_half_angle_deg.
   double                                forward_lock_half_angle_deg   = 100.0;
+  // Forwarded to ReplannerParams::planar: 2D replanning on the agent's own layer (ground vehicles).
+  bool                                  replanner_planar              = false;
+  // Ground vehicles: the cell / partition / centroid stay 3D (as for a UAV), but the control input
+  // has no z: the destination the centroid is pulled towards is held at the agent's height and the
+  // reference keeps the agent's z (only x, y and heading move).
+  bool                                  planar_control                = false;
+  // Ground cut of the partition cloud at z_min (the cell's lower bound) instead of `encumbrance`
+  // below the agent (see getGroundCleanCloud()).
+  bool                                  ground_cut_at_z_min           = false;
     bool downsample_pcl = false;
 };
 
@@ -140,6 +149,11 @@ public:
     void setPCL(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud);
     void setPCL1(const std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>& cloud);
   void setGoal(const Eigen::Vector3d& point);
+  // Global path (planned once by a planner that knows the map): goal = its last point, followed as
+  // given (same path following as the local replanner's path) -- no local replanning until the next
+  // setGoal(), which switches back to the local replanner (if params.replanner).
+  void setPath(const std::vector<Eigen::Vector3d>& path);
+  bool globalPathActive();
   void setBetaD(double beta);
   void setAltitude(const double& alt);
   void setRollPitchYaw(const Eigen::Vector3d& rpy);
@@ -207,6 +221,11 @@ private:
   std::vector<Eigen::Vector3d>                              inflated_map_;
   std::vector<Eigen::Vector3d>                              injected_points_map_;
   std::vector<Eigen::Vector3d>                              path_;
+  // setPath(): global path mode (see there); handed over to getNextRef() under input_mutex_
+  bool                                                      global_path_active_ = false;
+  bool                                                      new_global_path_    = false;
+  bool                                                      clear_path_         = false;
+  std::vector<Eigen::Vector3d>                              pending_path_;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>           cloud_;
   std::shared_ptr<pcl::PointCloud<pcl::PointXYZI>>           cloud_obs_;
   std::shared_ptr<RBLReplanner>                             rbl_replanner_;

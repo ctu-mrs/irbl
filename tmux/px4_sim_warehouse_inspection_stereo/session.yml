@@ -1,0 +1,120 @@
+---
+# Warehouse shelf inspection with a STEREO DEPTH CAMERA instead of the 3D lidar, single UAV,
+# PX4 SITL + Gazebo, irbl stack unchanged. Same as px4_sim_warehouse_inspection except the sensor:
+# x500_stereo (models/x500_stereo: forward OAK-D-Lite-like stereo depth camera) whose point cloud
+# feeds rbl_controller's pcl_topic, always in worlds/warehouse.sdf, plus the mission layer:
+# rbl_mission's warehouse_inspection_node knows the warehouse layout (config/warehouse_map.yaml)
+# and, on request, chains three tasks out of plain rbl_controller goto goals:
+#   GOTO aisle position -> COVERAGE scan of the shelf there -> RETURN to the previous position.
+#
+#   ./start.sh            then, once px4_bridge printed 'Arming' and the UAV hovers,
+#   ./inspect.sh -28 8.4 left      (prepared in the shell history of the `mission` window)
+#   ./kill.sh
+#
+# Layout of the session follows carts_deployment/tmux_sarax (own tmux.conf: prefix C-a, Alt-arrows
+# to move between panes, Shift-arrows between windows; `mission` window first).
+root: ./
+name: warehouse_inspection_stereo
+socket_name: whinspstereo
+attach: false
+tmux_options: -f ./tmux.conf
+startup_window: mission
+pre_window:
+  - export UAV_NAME=uav1
+  - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
+  # ROS_DOMAIN_ID, PX4 instance, uXRCE-DDS port, world (warehouse), HEADLESS, ... from the `launch:`
+  # section of config/custom_config.yaml -- see launch_env.sh.
+  - . ./launch_env.sh
+  # PX4 only looks for <PX4_GZ_WORLD>.sdf in its own Tools/simulation/gz/worlds: link ours in
+  # (worlds/ is px4_sim_1_uav_3dlidar's; idempotent, never clobbers a same-named real file).
+  - for w in ./worlds/*.sdf; do ln -sfn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
+  # same for the vehicle: px4-rc.gzsim spawns file://$PX4_GZ_MODELS/<model>/model.sdf only
+  - for m in ./models/*/; do ln -sfn "$(readlink -f $m)" "$PX4_DIR/Tools/simulation/gz/models/$(basename $m)" 2>/dev/null; done
+  # every node runs on gz's sim clock (bridged to /clock below), like px4_sim_1_uav_3dlidar
+  - export USE_SIM_TIME=true
+  # this session uses its own tmux.conf, so panes run $SHELL (bash or zsh): source the matching setup
+  - if [ -n "$ZSH_VERSION" ]; then RSH=zsh; else RSH=bash; fi
+  - source /opt/ros/jazzy/setup.$RSH
+  - source ../../../../install/setup.$RSH
+  - export ATUIN_FILTER_MODE=session
+windows:
+  - mission:
+      layout: tiled
+      panes:
+        # waits for ~/inspect requests; resolves the requested position into aisle/segment/shelf
+        - until ros2 service list 2>/dev/null | grep -q "/$UAV_NAME/rbl_controller/goto"; do sleep 1; done;
+          ros2 run rbl_mission warehouse_inspection_node --ros-args -r __ns:=/$UAV_NAME
+          --params-file ./config/warehouse_map.yaml -p use_sim_time:=true
+          -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+        # task currently running (IDLE / GOTO / COVERAGE / RETURN / DONE)
+        - ros2 topic echo /$UAV_NAME/warehouse_inspection/state std_msgs/msg/String
+          --qos-durability transient_local --field data
+        # operator pane: request an inspection (aisle position x y + shelf side), or abort
+        - echo "Wait for 'Arming' in the px4_bridge window and the UAV hovering, then
+          ./inspect.sh <x> <y> [left|right]   (./inspect.sh -h, abort with ./inspect.sh abort)";
+          if [ -n "$ZSH_VERSION" ]; then print -s './inspect.sh abort'; print -s './inspect.sh -28 8.4 left';
+          else history -s './inspect.sh abort'; history -s './inspect.sh -28 8.4 left'; fi
+  - micro_xrce_agent:
+      layout: tiled
+      panes:
+        - MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT
+  - px4_sitl:
+      layout: tiled
+      panes:
+        # same as px4_sim_1_uav_3dlidar: install the airframe into the built tree and start the px4
+        # binary directly (see that session.yml for why not `make px4_sitl ...`)
+        - cp airframes/4040_gz_x500_stereo $PX4_DIR/build/px4_sitl_default/etc/init.d-posix/airframes/ &&
+          cd $PX4_DIR/build/px4_sitl_default/rootfs &&
+          HEADLESS=$HEADLESS PX4_SIM_MODEL=gz_x500_stereo GZ_IP=127.0.0.1 ../bin/px4 -i $PX4_INSTANCE
+  - clock_bridge:
+      layout: tiled
+      panes:
+        - until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/clock"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge
+          "/world/$PX4_GZ_WORLD/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+          --ros-args -r "/world/$PX4_GZ_WORLD/clock:=/clock"
+  - px4_params:
+      layout: tiled
+      panes:
+        - ./fix_arming_healthcheck.sh
+        - ./set_px4_params.sh
+  - px4_sensor_tf:
+      layout: tiled
+      panes:
+        - ./publish_sensor_tf.sh
+  - stereo_bridge:
+      layout: tiled
+      panes:
+        # depth camera point cloud (frame stereo_link, x forward) -> pcl_topic of rbl_controller,
+        # plus the depth image itself for viewing. GZ_VEHICLE_MODEL_NAME = x500_stereo_<instance>.
+        - S="/world/$PX4_GZ_WORLD/model/$GZ_VEHICLE_MODEL_NAME/link/stereo_link/sensor/stereo_depth/depth_image";
+          until gz topic -l 2>/dev/null | grep -q "$S/points"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge
+          "$S/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked"
+          "$S@sensor_msgs/msg/Image[gz.msgs.Image"
+          --ros-args -r "$S/points:=/$UAV_NAME/sensors/stereo/points"
+          -r "$S:=/$UAV_NAME/sensors/stereo/depth"
+          -p use_sim_time:=true
+  - px4_bridge:
+      layout: tiled
+      panes:
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=$UAV_NAME/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p use_sim_time:=true -p publish_rate:=50.0
+          -p target_system:=$PX4_TARGET_SYSTEM ${PX4_FMU_NS:+-p} ${PX4_FMU_NS:+px4_ns:=$PX4_FMU_NS}
+  - rbl_controller:
+      layout: tiled
+      panes:
+        - export UAV_NAME=$UAV_NAME; ros2 launch rbl_controller_node rbl_controller.launch.py
+          uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
+          pcl_topic:=/$UAV_NAME/sensors/stereo/points
+  - foxglove:
+      layout: tiled
+      panes:
+        - ros2 run foxglove_bridge foxglove_bridge --ros-args -p port:=8765
+          -p use_sim_time:=${USE_SIM_TIME:-false}
+  - rviz:
+      layout: tiled
+      panes:
+        - if [ -n "$WEB_VIZ" ]; then echo "WEB_VIZ set, no rviz2 -- open http://localhost:8080";
+          else rviz2 -d ./inspection_stereo.rviz --ros-args -p use_sim_time:=true; fi

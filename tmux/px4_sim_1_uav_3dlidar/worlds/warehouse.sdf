@@ -13003,686 +13003,52 @@
         </visual>
       </link>
     </model>
-    <model name="pallet0">
+    <model name="temp_obstacle0">
       <static>true</static>
       <link name="link">
-        <collision name="pallet_c">
-          <pose>12.207 0.020 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <collision name="crate_c">
+          <pose>12.207 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
         </collision>
-        <visual name="pallet_v">
-          <pose>12.207 0.020 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <visual name="crate_v">
+          <pose>12.207 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
           <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>12.207 0.020 0.431 0 0 0</pose>
-          <geometry><box><size>0.926 0.740 0.562</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>12.207 0.020 0.431 0 0 0</pose>
-          <geometry><box><size>0.926 0.740 0.562</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>12.207 0.020 0.927 0 0 0</pose>
-          <geometry><box><size>0.929 0.675 0.429</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>12.207 0.020 0.927 0 0 0</pose>
-          <geometry><box><size>0.929 0.675 0.429</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>
       </link>
     </model>
-    <model name="pallet1">
+    <model name="temp_obstacle1">
       <static>true</static>
       <link name="link">
-        <collision name="pallet_c">
-          <pose>-22.923 0.165 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <collision name="crate_c">
+          <pose>-22.923 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
         </collision>
-        <visual name="pallet_v">
-          <pose>-22.923 0.165 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <visual name="crate_v">
+          <pose>-22.923 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
           <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-22.923 0.165 0.402 0 0 0</pose>
-          <geometry><box><size>0.900 0.610 0.504</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-22.923 0.165 0.402 0 0 0</pose>
-          <geometry><box><size>0.900 0.610 0.504</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>
       </link>
     </model>
-    <model name="pallet2">
+    <model name="temp_obstacle2">
       <static>true</static>
       <link name="link">
-        <collision name="pallet_c">
-          <pose>-8.615 -0.023 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <collision name="crate_c">
+          <pose>-8.615 -0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
         </collision>
-        <visual name="pallet_v">
-          <pose>-8.615 -0.023 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
+        <visual name="crate_v">
+          <pose>-8.615 -0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
           <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-8.615 -0.023 0.433 0 0 0</pose>
-          <geometry><box><size>1.030 0.680 0.567</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-8.615 -0.023 0.433 0 0 0</pose>
-          <geometry><box><size>1.030 0.680 0.567</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-8.615 -0.023 0.948 0 0 0</pose>
-          <geometry><box><size>1.083 0.701 0.464</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-8.615 -0.023 0.948 0 0 0</pose>
-          <geometry><box><size>1.083 0.701 0.464</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b2_c">
-          <pose>-8.615 -0.023 1.400 0 0 0</pose>
-          <geometry><box><size>0.916 0.610 0.439</size></box></geometry>
-        </collision>
-        <visual name="b2_v">
-          <pose>-8.615 -0.023 1.400 0 0 0</pose>
-          <geometry><box><size>0.916 0.610 0.439</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet3">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>4.776 3.894 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>4.776 3.894 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>4.776 3.894 0.353 0 0 0</pose>
-          <geometry><box><size>0.931 0.618 0.406</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>4.776 3.894 0.353 0 0 0</pose>
-          <geometry><box><size>0.931 0.618 0.406</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>4.776 3.894 0.838 0 0 0</pose>
-          <geometry><box><size>1.082 0.674 0.564</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>4.776 3.894 0.838 0 0 0</pose>
-          <geometry><box><size>1.082 0.674 0.564</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b2_c">
-          <pose>4.776 3.894 1.385 0 0 0</pose>
-          <geometry><box><size>1.025 0.702 0.530</size></box></geometry>
-        </collision>
-        <visual name="b2_v">
-          <pose>4.776 3.894 1.385 0 0 0</pose>
-          <geometry><box><size>1.025 0.702 0.530</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet4">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>25.657 3.797 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>25.657 3.797 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>25.657 3.797 0.336 0 0 0</pose>
-          <geometry><box><size>1.087 0.617 0.372</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>25.657 3.797 0.336 0 0 0</pose>
-          <geometry><box><size>1.087 0.617 0.372</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>25.657 3.797 0.764 0 0 0</pose>
-          <geometry><box><size>1.015 0.687 0.484</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>25.657 3.797 0.764 0 0 0</pose>
-          <geometry><box><size>1.015 0.687 0.484</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet5">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>5.544 -4.396 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>5.544 -4.396 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>5.544 -4.396 0.439 0 0 0</pose>
-          <geometry><box><size>0.916 0.700 0.579</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>5.544 -4.396 0.439 0 0 0</pose>
-          <geometry><box><size>0.916 0.700 0.579</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>5.544 -4.396 0.908 0 0 0</pose>
-          <geometry><box><size>1.074 0.707 0.358</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>5.544 -4.396 0.908 0 0 0</pose>
-          <geometry><box><size>1.074 0.707 0.358</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet6">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-10.946 -4.438 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-10.946 -4.438 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-10.946 -4.438 0.397 0 0 0</pose>
-          <geometry><box><size>0.987 0.637 0.494</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-10.946 -4.438 0.397 0 0 0</pose>
-          <geometry><box><size>0.987 0.637 0.494</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet7">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-23.164 -4.658 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-23.164 -4.658 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-23.164 -4.658 0.421 0 0 0</pose>
-          <geometry><box><size>0.968 0.738 0.542</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-23.164 -4.658 0.421 0 0 0</pose>
-          <geometry><box><size>0.968 0.738 0.542</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-23.164 -4.658 0.880 0 0 0</pose>
-          <geometry><box><size>0.948 0.673 0.376</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-23.164 -4.658 0.880 0 0 0</pose>
-          <geometry><box><size>0.948 0.673 0.376</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet8">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-18.680 8.466 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-18.680 8.466 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-18.680 8.466 0.421 0 0 0</pose>
-          <geometry><box><size>1.023 0.714 0.543</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-18.680 8.466 0.421 0 0 0</pose>
-          <geometry><box><size>1.023 0.714 0.543</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-18.680 8.466 0.975 0 0 0</pose>
-          <geometry><box><size>0.976 0.608 0.564</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-18.680 8.466 0.975 0 0 0</pose>
-          <geometry><box><size>0.976 0.608 0.564</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b2_c">
-          <pose>-18.680 8.466 1.537 0 0 0</pose>
-          <geometry><box><size>1.097 0.601 0.559</size></box></geometry>
-        </collision>
-        <visual name="b2_v">
-          <pose>-18.680 8.466 1.537 0 0 0</pose>
-          <geometry><box><size>1.097 0.601 0.559</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet9">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>19.769 8.227 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>19.769 8.227 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>19.769 8.227 0.412 0 0 0</pose>
-          <geometry><box><size>1.092 0.709 0.525</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>19.769 8.227 0.412 0 0 0</pose>
-          <geometry><box><size>1.092 0.709 0.525</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet10">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>30.294 8.561 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>30.294 8.561 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>30.294 8.561 0.366 0 0 0</pose>
-          <geometry><box><size>1.089 0.666 0.433</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>30.294 8.561 0.366 0 0 0</pose>
-          <geometry><box><size>1.089 0.666 0.433</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>30.294 8.561 0.778 0 0 0</pose>
-          <geometry><box><size>1.034 0.715 0.390</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>30.294 8.561 0.778 0 0 0</pose>
-          <geometry><box><size>1.034 0.715 0.390</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet11">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>5.791 -7.942 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>5.791 -7.942 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>5.791 -7.942 0.387 0 0 0</pose>
-          <geometry><box><size>0.990 0.682 0.475</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>5.791 -7.942 0.387 0 0 0</pose>
-          <geometry><box><size>0.990 0.682 0.475</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet12">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>12.230 -8.255 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>12.230 -8.255 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>12.230 -8.255 0.414 0 0 0</pose>
-          <geometry><box><size>0.975 0.634 0.529</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>12.230 -8.255 0.414 0 0 0</pose>
-          <geometry><box><size>0.975 0.634 0.529</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>12.230 -8.255 0.952 0 0 0</pose>
-          <geometry><box><size>0.946 0.726 0.546</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>12.230 -8.255 0.952 0 0 0</pose>
-          <geometry><box><size>0.946 0.726 0.546</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b2_c">
-          <pose>12.230 -8.255 1.524 0 0 0</pose>
-          <geometry><box><size>0.950 0.677 0.598</size></box></geometry>
-        </collision>
-        <visual name="b2_v">
-          <pose>12.230 -8.255 1.524 0 0 0</pose>
-          <geometry><box><size>0.950 0.677 0.598</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet13">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-10.309 12.905 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-10.309 12.905 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-10.309 12.905 0.356 0 0 0</pose>
-          <geometry><box><size>0.931 0.685 0.411</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-10.309 12.905 0.356 0 0 0</pose>
-          <geometry><box><size>0.931 0.685 0.411</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-10.309 12.905 0.795 0 0 0</pose>
-          <geometry><box><size>0.951 0.711 0.469</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-10.309 12.905 0.795 0 0 0</pose>
-          <geometry><box><size>0.951 0.711 0.469</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet14">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>4.775 12.168 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>4.775 12.168 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>4.775 12.168 0.438 0 0 0</pose>
-          <geometry><box><size>1.087 0.726 0.577</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>4.775 12.168 0.438 0 0 0</pose>
-          <geometry><box><size>1.087 0.726 0.577</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet15">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-25.294 -12.756 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-25.294 -12.756 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-25.294 -12.756 0.447 0 0 0</pose>
-          <geometry><box><size>0.994 0.672 0.594</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-25.294 -12.756 0.447 0 0 0</pose>
-          <geometry><box><size>0.994 0.672 0.594</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-25.294 -12.756 1.000 0 0 0</pose>
-          <geometry><box><size>1.028 0.660 0.511</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-25.294 -12.756 1.000 0 0 0</pose>
-          <geometry><box><size>1.028 0.660 0.511</size></box></geometry>
-          <material>
-            <ambient>0.72 0.55 0.33 1</ambient><diffuse>0.72 0.55 0.33 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="pallet16">
-      <static>true</static>
-      <link name="link">
-        <collision name="pallet_c">
-          <pose>-6.299 -12.708 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-        </collision>
-        <visual name="pallet_v">
-          <pose>-6.299 -12.708 0.075 0 0 0</pose>
-          <geometry><box><size>1.200 0.800 0.150</size></box></geometry>
-          <material>
-            <ambient>0.55 0.4 0.22 1</ambient><diffuse>0.55 0.4 0.22 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b0_c">
-          <pose>-6.299 -12.708 0.327 0 0 0</pose>
-          <geometry><box><size>1.035 0.681 0.354</size></box></geometry>
-        </collision>
-        <visual name="b0_v">
-          <pose>-6.299 -12.708 0.327 0 0 0</pose>
-          <geometry><box><size>1.035 0.681 0.354</size></box></geometry>
-          <material>
-            <ambient>0.65 0.48 0.28 1</ambient><diffuse>0.65 0.48 0.28 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
-          </material>
-        </visual>
-        <collision name="b1_c">
-          <pose>-6.299 -12.708 0.741 0 0 0</pose>
-          <geometry><box><size>0.942 0.726 0.475</size></box></geometry>
-        </collision>
-        <visual name="b1_v">
-          <pose>-6.299 -12.708 0.741 0 0 0</pose>
-          <geometry><box><size>0.942 0.726 0.475</size></box></geometry>
-          <material>
-            <ambient>0.58 0.42 0.24 1</ambient><diffuse>0.58 0.42 0.24 1</diffuse>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>
@@ -13836,6 +13202,363 @@
           <geometry><box><size>0.500 0.500 6.000</size></box></geometry>
           <material>
             <ambient>0.62 0.62 0.64 1</ambient><diffuse>0.62 0.62 0.64 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle3">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>22.472 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>22.472 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle4">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-5.227 -0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-5.227 -0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle5">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-29.236 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-29.236 0.750 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle6">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-11.099 4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-11.099 4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle7">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-19.536 3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-19.536 3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle8">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>19.448 4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>19.448 4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle9">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>10.659 -3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>10.659 -3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle10">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-20.371 -4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-20.371 -4.950 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle11">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-3.375 -3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-3.375 -3.450 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle12">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-11.224 9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-11.224 9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle13">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-3.680 7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-3.680 7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle14">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>13.861 9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>13.861 9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle15">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-20.643 -7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-20.643 -7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle16">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>20.269 -9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>20.269 -9.150 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle17">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-5.277 -7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-5.277 -7.650 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle18">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>22.725 13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>22.725 13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle19">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>13.275 11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>13.275 11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle20">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>2.136 13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>2.136 13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle21">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>-30.466 -11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>-30.466 -11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle22">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>3.415 -13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>3.415 -13.350 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="temp_obstacle23">
+      <static>true</static>
+      <link name="link">
+        <collision name="crate_c">
+          <pose>6.014 -11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+        </collision>
+        <visual name="crate_v">
+          <pose>6.014 -11.850 0.350 0 0 0</pose>
+          <geometry><box><size>0.450 0.450 0.700</size></box></geometry>
+          <material>
+            <ambient>0.85 0.1 0.08 1</ambient><diffuse>0.85 0.1 0.08 1</diffuse>
             <specular>0.1 0.1 0.1 1</specular>
           </material>
         </visual>

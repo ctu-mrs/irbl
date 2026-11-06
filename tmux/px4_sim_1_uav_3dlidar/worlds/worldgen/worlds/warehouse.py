@@ -7,8 +7,10 @@ Layout (x forward, y left, origin = UAV spawn point, in the middle of the y=0 ma
   - each row is cut by 3 m wide cross-aisles at x = -16.5, 0, 16.5, giving 4 rack segments per row.
   - racks are open shelving (uprights + 4 shelf planks + random cartons on the planks), so the
     lidar sees through/around them like real racking rather than off a solid wall.
-  - loose clutter (pallets with box stacks) and a few columns are dropped into the aisles, keeping
-    >= 1.6 m of free width in every aisle and the spawn area clear.
+  - a few columns in the cross-aisles; loose pallets with box stacks in the aisles only with
+    PALLETS = True (off: the aisles hold only the red crates), keeping >= 1.6 m of free width.
+  - the main aisle (y = 0) gets small red crates instead of pallets (>= 1.9 m free width): these are
+    *temporary* obstacles (model name temp_obstacle*), left out of the prior map used by the planners.
 """
 from ..sdf import FOOTER, box, header, model
 from .. import World
@@ -29,6 +31,16 @@ ORANGE = (0.90, 0.45, 0.10)
 CARTON = [(0.65, 0.48, 0.28), (0.72, 0.55, 0.33), (0.58, 0.42, 0.24)]
 WOOD = (0.55, 0.40, 0.22)
 CONCRETE = (0.62, 0.62, 0.64)
+TEMP_RED = (0.85, 0.10, 0.08)
+
+# pallets with carton stacks in the side aisles: off (the aisles hold only the red crates). Their
+# random draws are still made, so the racks / crates / columns keep their layout either way.
+PALLETS = False
+
+# temporary obstacles (main aisle only): not part of the prior map, see temp_obstacle()
+TEMP_PREFIX = "temp_obstacle"
+TMP_SIZE = (0.45, 0.45, 0.7)  # [m] tall enough for the UGV's stereo camera / rbl band (z 0.2..1.0)
+TMP_Y = 0.75                  # [m] crate centre off the centreline: occupies |y| 0.525..0.975
 
 
 def segments():
@@ -66,13 +78,21 @@ def rack(rng, idx, x0, x1, y):
     return model(f"rack{idx}", body)
 
 
+def temp_obstacle(i, x, y):
+    """Small red crate, standing off the aisle centreline: the UGV (0.45 m encumbrance) passes it
+    with ~2 m of free width on the other side. Its model name starts with TEMP_PREFIX, so the prior
+    map (rbl_mission loadWorldObstacles: global / coverage planners) ignores it -- only the onboard
+    sensors see it -- and mission_viz draws it in red."""
+    return model(f"{TEMP_PREFIX}{i}", box("crate", x, y, TMP_SIZE[2] / 2, *TMP_SIZE, TEMP_RED))
+
+
 def clutter(rng):
     """Pallets with box stacks and columns in the aisles. Aisle centerlines are y = 0, +-4.2, +-8.4,
     +-12.6, +-16.65 (outer strip); items stay narrow enough to keep >= 1.6 m of free width."""
     out = ""
     aisle_ys = [0.0, 4.2, -4.2, 8.4, -8.4, 12.6, -12.6]
     placed = []
-    n = 0
+    n = n_tmp = 0
     for ay in aisle_ys:
         for _ in range(rng.randint(2, 3)):
             for _try in range(50):
@@ -97,7 +117,14 @@ def clutter(rng):
                 body += box(f"b{j}", x, y, z + h / 2, rng.uniform(0.9, 1.1), rng.uniform(0.6, 0.75), h,
                             rng.choice(CARTON))
                 z += h
-            out += model(f"pallet{n}", body)
+            if ay == 0.0:
+                # main aisle: a small temporary obstacle instead of the pallet (the pallet's random
+                # draws above are still made, so every other aisle keeps its layout)
+                out += temp_obstacle(n_tmp, x, ay + (TMP_Y if y >= ay else -TMP_Y))
+                n_tmp += 1
+                continue
+            if PALLETS:
+                out += model(f"pallet{n}", body)
             n += 1
     # columns in the cross-aisles, off-centre so a 3 m cross-aisle keeps >= 2 m of free width
     for i, cxa in enumerate(CROSS_AISLES):
@@ -105,6 +132,41 @@ def clutter(rng):
             if abs(cxa) < 1e-6 and abs(cy) < 4.3 and cy != 4.2:
                 continue
             out += model(f"column{i}_{j}", box("col", cxa + 0.8, cy, WALL_H / 2, 0.5, 0.5, WALL_H, CONCRETE))
+    out += extra_temp_obstacles(aisle_ys, placed, n_tmp)
+    return out
+
+
+EXTRA_TMP_PER_AISLE = 3   # extra red crates in every aisle (on top of the main aisle's pallet swaps)
+EXTRA_TMP_SEED = 4242     # own generator: the racks / pallets / columns keep their layout
+
+
+def extra_temp_obstacles(aisle_ys, placed, n_tmp):
+    """More temporary red crates (see temp_obstacle), EXTRA_TMP_PER_AISLE per aisle, alternating
+    sides of the centreline. Kept >= 2.5 m (x) from the pallets and from each other, out of the
+    cross-aisles and the spawn area, and >= 2 m from the segment midpoints (deploy.sh's UGV stops: the
+    planners do not know these crates, so a stop must not land on one)."""
+    import random
+    rng = random.Random(EXTRA_TMP_SEED)
+    mids = [(x0 + x1) / 2 for x0, x1 in segments()]
+    taken = list(placed)
+    out = ""
+    for ay in aisle_ys:
+        for k in range(EXTRA_TMP_PER_AISLE):
+            for _try in range(200):
+                x = rng.uniform(X_MIN + 4, X_MAX - 4)
+                if abs(x) < 3.0 and abs(ay) < 3.0:
+                    continue
+                if any(abs(x - c) < CROSS_W / 2 + 0.6 for c in CROSS_AISLES):
+                    continue
+                if any(abs(x - m) < 2.0 for m in mids):
+                    continue
+                if any(abs(py - ay) < 1.5 and abs(x - px) < 2.5 for px, py in taken):
+                    continue
+                y = ay + (TMP_Y if (k + int(ay)) % 2 == 0 else -TMP_Y)
+                taken.append((x, y))
+                out += temp_obstacle(n_tmp, x, y)
+                n_tmp += 1
+                break
     return out
 
 

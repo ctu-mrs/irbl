@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UAV of px4_sim_ugv_uav_warehouse: PX4's x500_lidar_3d (3D lidar + LW20) plus a downward camera
+  for PX4's built-in precision landing on the ArUco marker on the UGV deck (see
+  models/r1_rover_carrier and rbl_mission/scripts/aruco_landing_target.py).
+
+  - down_cam_link: 6 cm behind / 6 cm below base_link (clear of the LW20 at x=0), pitched +90 deg
+    -> looks straight down. 640x480 @ 20 Hz, 80 deg horizontal FOV. Image "up" is the vehicle's
+    front (camera link z = base_link x), image "right" its right side.
+    Gazebo topic: /world/<world>/model/<name>/link/down_cam_link/sensor/down_cam/{image,camera_info}
+
+  The session links this folder into PX4's Tools/simulation/gz/models; the vehicle is started with
+  PX4_SIM_MODEL=gz_x500_lidar_3d_cam_down -> gz model x500_lidar_3d_cam_down_<instance>.
+-->
+<sdf version='1.9'>
+  <model name='x500_lidar_3d_cam_down'>
+    <self_collide>false</self_collide>
+    <include merge='true'>
+      <uri>model://x500_lidar_3d</uri>
+    </include>
+
+    <link name="down_cam_link">
+      <pose relative_to="base_link">-0.06 0 -0.06 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia><ixx>1e-5</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-5</iyy><iyz>0</iyz><izz>1e-5</izz></inertia>
+      </inertial>
+      <visual name="down_cam_visual">
+        <geometry><box><size>0.02 0.03 0.03</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="down_cam" type="camera">
+        <gz_frame_id>down_cam_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>1.396</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>20.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>20</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+    <joint name="down_cam_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>down_cam_link</child>
+    </joint>
+  </model>
+</sdf>

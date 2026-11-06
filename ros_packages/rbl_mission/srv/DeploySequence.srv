@@ -1,0 +1,11 @@
+# Several shelves in one go (ugv_uav_mission_node ~/deploy_sequence): for each (shelf_x[i], shelf_y[i],
+# side[i]) in order, the same as one rbl_mission/srv/Deploy -- UGV to the aisle position, UAV takes off,
+# inspects, is picked up and lands on the UGV, disarms -- but the UGV drives straight on to the next
+# shelf with the UAV on board; only after the last one does it carry it back to where it started.
+# All three arrays must have the same length. Positions in the shared control frame ("world").
+float64[] shelf_x
+float64[] shelf_y
+string[] side        # "left" (+y rack row of the aisle) or "right" (-y rack row)
+---
+bool success
+string message

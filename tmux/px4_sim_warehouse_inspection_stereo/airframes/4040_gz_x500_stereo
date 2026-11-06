@@ -1,0 +1,12 @@
+#!/bin/sh
+#
+# @name Gazebo x500 stereo depth camera
+#
+# @type Quadrotor
+#
+# x500 with a forward stereo depth camera (models/x500_stereo next to this folder), used by
+# px4_sim_warehouse_inspection_stereo instead of the 3D lidar of 4024_gz_x500_lidar_3d.
+
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500_stereo}
+
+. ${R}etc/init.d-posix/airframes/4001_gz_x500

@@ -1,0 +1,7 @@
+# Follow this path (global plan, e.g. from a planner that knows the map): rbl_controller's goal is its
+# last pose, and the path is followed as given -- no local replanning -- with rbl's reactive collision
+# avoidance on top. A later plain ~/goto (rbl_msgs/Vec4) switches back to the local replanner.
+nav_msgs/Path path
+---
+bool success
+string message

@@ -6,6 +6,18 @@
 // Streams OffboardControlMode + TrajectorySetpoint continuously (PX4 requires this before and
 // during OFFBOARD mode) and, after a short warm-up, auto-arms and switches PX4 into OFFBOARD mode --
 // this mirrors PX4's official ROS 2 offboard_control.cpp example.
+//
+// Optional (defaults keep the behaviour above): auto_arm:=false + "~/arm" (std_srvs/Trigger) arms
+// on demand; takeoff_at_current_position:=true takes off above wherever the vehicle is when it
+// arms instead of above its spawn point (e.g. a UAV carried somewhere by a UGV first); "~/land"
+// (std_srvs/Trigger) sends PX4 a NAV_LAND command, "~/precland" switches PX4 to its precision
+// landing mode (AUTO_PRECLAND: lands on the landing_target_pose of its vision_target_estimator;
+// after either, with auto_arm:=false, "~/arm" can take off again); "~/disarm" force-disarms (once landed). ground_vehicle:=true (rovers) publishes odometry at the fixed height
+// home_offset_z with zero vertical speed (a rover's EKF height is just drift), and makes the rover
+// follow rbl's heading too: PX4's rover offboard position mode ignores the setpoint's yaw (pure
+// pursuit, spot-turning only towards the target point), so when the reference is within
+// ground_turn_radius of the rover and its heading is more than ground_turn_angle off, the target
+// sent is ground_turn_radius ahead along the reference heading instead -> PX4 spot-turns to it.
 
 #include <algorithm>
 #include <chrono>
@@ -25,6 +37,7 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rbl_msgs/msg/reference_stamped.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include <Eigen/Geometry>
@@ -82,6 +95,13 @@ public:
     home_offset_.x() = declare_parameter<double>("home_offset_x", 0.0);
     home_offset_.y() = declare_parameter<double>("home_offset_y", 0.0);
     home_offset_.z() = declare_parameter<double>("home_offset_z", 0.0);
+    takeoff_at_current_position_ = declare_parameter<bool>("takeoff_at_current_position", false);
+    ground_vehicle_              = declare_parameter<bool>("ground_vehicle", false);
+    // [s] after a ~/arm: if the vehicle has not climbed 0.3 m this long after the arm command (PX4
+    // refused arming / OFFBOARD), the sequence is sent again (only with takeoff_altitude > 0.3)
+    arm_retry_timeout_           = declare_parameter<double>("arm_retry_timeout", 5.0);
+    ground_turn_radius_          = declare_parameter<double>("ground_turn_radius", 0.3);   // [m]
+    ground_turn_angle_           = declare_parameter<double>("ground_turn_angle", 0.35);   // [rad] ~20 deg
 
     const rclcpp::QoS px4_qos = rclcpp::QoS(rclcpp::KeepLast(5)).best_effort().durability_volatile();
 
@@ -110,6 +130,63 @@ public:
     reference_sub_ = create_subscription<rbl_msgs::msg::ReferenceStamped>(
         "reference", rclcpp::QoS(1), std::bind(&Px4BridgeNode::referenceCallback, this, std::placeholders::_1));
 
+    srv_arm_ = create_service<std_srvs::srv::Trigger>(
+        "~/arm", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                        std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+          if (armed_and_offboard_) {
+            res->success = true;
+            res->message = "already armed / offboard";
+            return;
+          }
+          if (!have_odom_) {
+            res->success = false;
+            res->message = "no vehicle odometry from PX4 yet";
+            return;
+          }
+          arm_requested_  = true;
+          setpoint_count_ = 0;
+          // take off on the climb setpoint, not on a stale reference (e.g. the last one of the landing)
+          have_reference_          = false;
+          have_commanded_position_ = false;
+          have_commanded_yaw_      = false;
+          res->success    = true;
+          res->message    = "arming requested";
+          RCLCPP_INFO(get_logger(), "arm requested");
+        });
+    srv_land_ = create_service<std_srvs::srv::Trigger>(
+        "~/land", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                         std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+          publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND);
+          RCLCPP_INFO(get_logger(), "Landing (NAV_LAND)");
+          resetAfterLanding();
+          res->success = true;
+          res->message = "land command sent";
+        });
+    srv_disarm_ = create_service<std_srvs::srv::Trigger>(
+        "~/disarm", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                           std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+          // forced (param2 = 21196): PX4's own land detector may not flag "landed" on a deck that is
+          // itself a vehicle; the caller only uses this once the vehicle is down and still
+          publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0f, 21196.0f);
+          RCLCPP_INFO(get_logger(), "Disarm (forced)");
+          resetAfterLanding();
+          res->success = true;
+          res->message = "disarm command sent";
+        });
+    srv_precland_ = create_service<std_srvs::srv::Trigger>(
+        "~/precland", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                             std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+          // DO_SET_MODE: custom mode, main mode AUTO (4), sub mode AUTO_PRECLAND (9) -- the mode
+          // `commander mode auto:precland` selects ("required" precision landing: searches at
+          // PLD_SRCH_ALT if the target is not visible, falls back to a normal landing after
+          // PLD_MAX_SRCH attempts)
+          publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1.0f, 4.0f, 9.0f);
+          RCLCPP_INFO(get_logger(), "Precision landing (AUTO_PRECLAND)");
+          resetAfterLanding();
+          res->success = true;
+          res->message = "precision landing mode requested";
+        });
+
     timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
                                 std::bind(&Px4BridgeNode::timerCallback, this));
 
@@ -134,7 +211,10 @@ private:
     const Eigen::Vector3d    vel_enu = px4_ros_com::frame_transforms::ned_to_enu_local_frame(vel_ned);
     const Eigen::Quaterniond q_enu   = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
 
-    const Eigen::Vector3d pos_enu_shared = pos_enu + home_offset_;
+    Eigen::Vector3d pos_enu_shared = pos_enu + home_offset_;
+    if (ground_vehicle_) {
+      pos_enu_shared.z() = home_offset_.z();
+    }
 
     nav_msgs::msg::Odometry odom;
     odom.header.stamp    = now();
@@ -154,7 +234,7 @@ private:
     // not in the body frame -- matches the world-frame odometry convention it was written against.
     odom.twist.twist.linear.x = vel_enu.x();
     odom.twist.twist.linear.y = vel_enu.y();
-    odom.twist.twist.linear.z = vel_enu.z();
+    odom.twist.twist.linear.z = ground_vehicle_ ? 0.0 : vel_enu.z();
 
     odom.twist.twist.angular.x = msg->angular_velocity[0];
     odom.twist.twist.angular.y = -msg->angular_velocity[1];
@@ -179,6 +259,12 @@ private:
 
     have_odom_ = true;
     last_position_enu_ = pos_enu;
+    last_position_ned_ = pos_ned;
+    current_yaw_ned_   = px4_ros_com::frame_transforms::utils::quaternion::quaternion_get_yaw(q_px4);
+    // takeoff_at_current_position: follow the vehicle until it arms, then freeze
+    if (!armed_and_offboard_) {
+      takeoff_origin_ned_ = pos_ned;
+    }
   }
 
   // | ------------------------- ROS -> PX4 ------------------------ |
@@ -210,7 +296,7 @@ private:
     // Do not even start counting towards arming until PX4 is actually streaming odometry
     // (i.e. the EKF has a valid local position estimate) -- arming/OFFBOARD would be rejected
     // otherwise, and counting down regardless would race PX4's own startup.
-    if (auto_arm_ && !armed_and_offboard_ && have_odom_) {
+    if ((auto_arm_ || arm_requested_) && !armed_and_offboard_ && have_odom_) {
       if (setpoint_count_ == arm_after_cycles_) {
         publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0);
         RCLCPP_INFO(get_logger(), "Requesting OFFBOARD mode");
@@ -219,9 +305,28 @@ private:
         publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
         RCLCPP_INFO(get_logger(), "Arming");
         armed_and_offboard_ = true;
+        if (arm_requested_ && takeoff_altitude_ > 0.3) {  // ~/arm of a vehicle that must climb: verify
+          verify_takeoff_ = true;
+          arm_sent_       = now();
+        }
       }
       if (setpoint_count_ < arm_after_cycles_ + 3) {
         ++setpoint_count_;
+      }
+    }
+
+    // The arm / OFFBOARD commands are fire-and-forget: PX4 may refuse them (e.g. "Arming denied:
+    // GPS Horizontal Pos Drift too high" after being carried by the UGV). Not climbing within
+    // arm_retry_timeout of the arm command -> send the OFFBOARD + ARM sequence again.
+    if (verify_takeoff_ && armed_and_offboard_) {
+      if (takeoff_origin_ned_.z() - last_position_ned_.z() > 0.3) {
+        verify_takeoff_ = false;  // it is climbing
+      } else if ((now() - arm_sent_).seconds() > arm_retry_timeout_) {
+        RCLCPP_WARN(get_logger(), "not taking off %.0f s after arming (PX4 refused it?): retrying OFFBOARD + ARM",
+                    arm_retry_timeout_);
+        verify_takeoff_     = false;
+        armed_and_offboard_ = false;
+        setpoint_count_     = 0;
       }
     }
   }
@@ -293,17 +398,29 @@ private:
 
       prev_command_stamp_ = stamp;
 
-      msg.position[0] = static_cast<float>(commanded_position_ned_.x());
-      msg.position[1] = static_cast<float>(commanded_position_ned_.y());
-      msg.position[2] = static_cast<float>(commanded_position_ned_.z());
+      Eigen::Vector3d target = commanded_position_ned_;
+      if (ground_vehicle_) {  // heading-only reference -> a point just ahead along it (see header)
+        const double d   = (commanded_position_ned_ - last_position_ned_).head<2>().norm();
+        const double err = std::remainder(commanded_yaw_ned_ - current_yaw_ned_, 2.0 * M_PI);
+        if (d < ground_turn_radius_ && std::abs(err) > ground_turn_angle_) {
+          target.x() = last_position_ned_.x() + ground_turn_radius_ * std::cos(commanded_yaw_ned_);
+          target.y() = last_position_ned_.y() + ground_turn_radius_ * std::sin(commanded_yaw_ned_);
+        }
+      }
+      msg.position[0] = static_cast<float>(target.x());
+      msg.position[1] = static_cast<float>(target.y());
+      msg.position[2] = static_cast<float>(target.z());
       msg.yaw         = static_cast<float>(commanded_yaw_ned_);
     }
     else {
       // pre-activation: climb straight up to the configured hover altitude and hold, above the
       // local-origin spawn point, until rbl_controller starts publishing real references.
-      msg.position[0] = 0.0f;
-      msg.position[1] = 0.0f;
-      msg.position[2] = static_cast<float>(-takeoff_altitude_);
+      // (takeoff_at_current_position: above where the vehicle is / was when it armed instead)
+      const Eigen::Vector3d origin =
+          takeoff_at_current_position_ ? takeoff_origin_ned_ : Eigen::Vector3d::Zero();
+      msg.position[0] = static_cast<float>(origin.x());
+      msg.position[1] = static_cast<float>(origin.y());
+      msg.position[2] = static_cast<float>(origin.z() - takeoff_altitude_);
       msg.yaw         = static_cast<float>(takeoff_yaw_ned_);
     }
 
@@ -311,11 +428,25 @@ private:
     trajectory_setpoint_pub_->publish(msg);
   }
 
-  void publishVehicleCommand(uint32_t command, float param1 = 0.0f, float param2 = 0.0f)
+  // allow a later ~/arm to take off again from wherever it lands (auto_arm:=false only)
+  void resetAfterLanding()
+  {
+    if (auto_arm_) return;
+    armed_and_offboard_      = false;
+    arm_requested_           = false;
+    verify_takeoff_          = false;
+    setpoint_count_          = 0;
+    have_reference_          = false;
+    have_commanded_position_ = false;
+    have_commanded_yaw_      = false;
+  }
+
+  void publishVehicleCommand(uint32_t command, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f)
   {
     px4_msgs::msg::VehicleCommand msg{};
     msg.param1            = param1;
     msg.param2            = param2;
+    msg.param3            = param3;
     msg.command           = command;
     msg.target_system     = static_cast<uint8_t>(target_system_);
     msg.target_component  = 1;
@@ -338,12 +469,23 @@ private:
   double          max_yaw_rate_;
   bool            auto_arm_;
   int             arm_after_cycles_;
+  bool            takeoff_at_current_position_;
+  bool            ground_vehicle_;
+  double          ground_turn_radius_;
+  double          ground_turn_angle_;
 
   // | -------------------------- state ----------------------------- |
   bool            have_odom_          = false;
   bool            have_reference_     = false;
   bool            armed_and_offboard_ = false;
   int             setpoint_count_     = 0;
+  bool            arm_requested_      = false;
+  bool            verify_takeoff_     = false;
+  rclcpp::Time    arm_sent_;
+  double          arm_retry_timeout_  = 5.0;
+  Eigen::Vector3d takeoff_origin_ned_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d last_position_ned_  = Eigen::Vector3d::Zero();
+  double          current_yaw_ned_    = 0.0;
   Eigen::Vector3d last_position_enu_  = Eigen::Vector3d::Zero();
   double          takeoff_yaw_ned_    = 0.0;
   Eigen::Vector3d latest_setpoint_ned_ = Eigen::Vector3d::Zero();
@@ -368,6 +510,11 @@ private:
 
   rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr   vehicle_odometry_sub_;
   rclcpp::Subscription<rbl_msgs::msg::ReferenceStamped>::SharedPtr  reference_sub_;
+
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                srv_arm_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                srv_land_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                srv_precland_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                srv_disarm_;
 
   rclcpp::TimerBase::SharedPtr timer_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;

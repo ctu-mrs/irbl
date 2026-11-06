@@ -1,0 +1,67 @@
+# Prior map of worlds/greenhouse.sdf + coverage settings, loaded by rbl_mission's
+# warehouse_inspection_node, ugv_uav_mission_node and mission_viz_node (see session.yml).
+# Everything is in the control frame "world" (= gz world origin = UGV spawn point, x forward, y left,
+# z up, metres). Values mirror worlds/worldgen/worlds/greenhouse.py -- regenerate that world with a
+# different layout and this file must follow.
+#
+# The crop rows run along x. Between two neighbouring rows is an aisle; the cross-aisles at
+# x = -14, 0, 14 cut every aisle into 4 segments. A "shelf" (the mission's word) is one crop row face
+# seen from one aisle segment, on the left (+y row) or right (-y row) side of the aisle.
+#
+#   aisle id      1      2     3     4     5     6     7      (4 = main aisle, the UGV spawns in it at x=0)
+#   centre y    -11.4  -7.6  -3.8   0.0   3.8   7.6  11.4
+#   segment id    1: x -28..-15.5   2: x -12.5..-1.5   3: x 1.5..12.5   4: x 15.5..28
+/**:
+  ros__parameters:
+    map:
+      rack_depth: 0.8          # [m] crop row depth along y (row centre +- depth/2 = its two faces)
+      rack_height: 3.0         # [m] plants up to 2.8 m, crop support wire at 3.0 m
+      aisle_half_width: 1.5    # [m] a requested position must be this close to an aisle centreline
+      cross_aisle_reach: 2.0   # [m] ... and at most this far along x outside a row segment (cross-aisle)
+      aisle_y:         [-11.4, -7.6, -3.8, 0.0, 3.8, 7.6, 11.4]
+      aisle_left_row:  [-9.5, -5.7, -1.9, 1.9, 5.7, 9.5, 13.3]     # crop row centre at +y of each aisle
+      aisle_right_row: [-13.3, -9.5, -5.7, -1.9, 1.9, 5.7, 9.5]    # crop row centre at -y of each aisle
+      segment_x_min: [-28.0, -12.5, 1.5, 15.5]
+      segment_x_max: [-15.5, -1.5, 12.5, 28.0]
+      cross_aisle_x: [-29.0, -14.0, 0.0, 14.0, 29.0]  # passages across the rows: the 3 cross-aisles and
+                                                      # the 2 m strips along the end walls (UGV routes)
+      # every collision shape of the world (gutters, legs, plants, wires, posts, walls) is an obstacle
+      # the goals keep coverage.clearance from -- except the temporary ones (models temp_obstacle*: the
+      # red harvest crates in the aisles), left to the onboard sensors / rbl. Relative to the session
+      # folder; session.yml passes the absolute path of the world actually running.
+      world_sdf: worlds/greenhouse.sdf
+
+    coverage:
+      standoff: 1.2            # [m] nominal distance scan lane <-> scanned row face (aisle is 3 m wide)
+      standoff_max: 1.8        # [m] lane band: a blocked sample may move away from the face up to this
+      levels: [0.9, 1.6, 2.2]  # [m] pass heights along the crop row (boustrophedon), plants 2.3..2.8 m
+      end_margin: 1.0          # [m] start/stop each pass this far inside the segment's ends
+      sample_step: 0.25        # [m] each pass is checked against the obstacles at this spacing
+      waypoint_spacing: 3.0    # [m] goal spacing on straight, clear stretches of a pass
+      clearance: 0.7           # [m] min distance of every goal / coverage segment from every obstacle
+      search_dz: 0.4           # [m] a blocked sample may change height by this much (then: hop over)
+      entry_search: 1.5        # [m] how far along the aisle the entry / exit goals may move to get clear
+      z_min: 0.6               # [m] height limits of every goal and every routed leg
+      z_max: 2.25              # [m] < rack_height - clearance: the UAV never goes over a crop row (the
+                               # UAV rbl_controller's own z_max is 2.6 in config/uav_rbl.yaml, so its
+                               # replanner can't route over them either)
+
+    planner:
+      mode: global             # see px4_sim_ugv_uav_warehouse/config/warehouse_map.yaml; env.sh PLANNER overrides
+      resolution: 0.2          # [m] grid cell of the UGV planner
+      ugv_clearance: 0.6       # [m] min planar distance UGV path <-> obstacles (rbl encumbrance is 0.45)
+      ugv_preferred_clearance: 1.2  # [m] closer than this costs extra: keeps to the middle of the aisles
+      clearance_weight: 2.0
+      ugv_z_lo: 0.05           # [m] obstacles overlapping this height band block the UGV (rover + carried UAV)
+      ugv_z_hi: 1.0
+      sample_spacing: 0.5      # [m] spacing of the path points sent to rbl_controller
+
+    mission:
+      tolerance: 0.6           # [m] 3D arrival tolerance at stops (aisle position, pass ends, home)
+      tolerance_pass: 1.0      # [m] tolerance for intermediate pass-through goals
+      timeout_base: 30.0       # [s] per-goal timeout = base + per_meter * distance
+      timeout_per_meter: 4.0   # [s/m]
+      min_altitude: 1.5        # [m] ~/inspect is rejected until px4_bridge's auto-takeoff is above this
+      return_to_start: false   # the UAV ends hovering where it left the aisle; the UGV picks it up there
+
+    grid_label_z: 3.6          # [m] mission_viz: row / column labels just above the crop rows
