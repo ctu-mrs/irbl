@@ -1292,15 +1292,23 @@ void RBLController::computeScalarValue(std::vector<double>&       scalar_values,
 {
   (void)goal;     // TODO - currently unused
 
+  std::vector<double> distances;
+  distances.reserve(x_test.size());
+  double min_distance = std::numeric_limits<double>::infinity();
   for (size_t i = 0; i < x_test.size(); ++i) {
     double distance = std::sqrt(std::pow((x_test[i] - destination[0]), 2) + std::pow((y_test[i] - destination[1]), 2) +
                                 std::pow((z_test[i] - destination[2]), 2));
+    distances.push_back(distance);
+    min_distance = std::min(min_distance, distance);
+  }
 
-    // double distance_to_goal= std::sqrt(std::pow((x_test[i] - goal[0]), 2) + std::pow((y_test[i] - goal[1]), 2) +
-    //                             std::pow((z_test[i] - goal[2]), 2));
-
-    double scalar_value = std::exp(-distance / beta);
-    scalar_values.push_back(scalar_value);
+  // Weights exp(-(d - d_min) / beta) instead of exp(-d / beta): the only user (computeCentroid) normalises
+  // them by their sum, so the centroid is mathematically the same, but the closest point always weighs 1.
+  // With exp(-d / beta) a destination more than ~20 m away (d / beta > ~47 for a 1e5-point cell) made the
+  // sum underflow below DBL_EPSILON, computeCentroid fell back to centroid = agent position and the UAV
+  // stopped (crawled) on every long leg, e.g. waypoints 30 m apart.
+  for (const double distance : distances) {
+    scalar_values.push_back(std::exp(-(distance - min_distance) / beta));
   }
 }  // //}
 
