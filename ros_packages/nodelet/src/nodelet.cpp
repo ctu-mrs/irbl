@@ -732,164 +732,192 @@ namespace rbl_controller
 #endif
     }
 
-    if (!pcl_enabled_) {
-      // no obstacle cloud input: free space (+ neighbours, handled by the partition)
-    }
-    else if (octomap_msg_) {
-      if (sh_octomap_.newMsg()) {
-        auto msg = sh_octomap_.getMsg();
-        if (!msg) {
-          RCLCPP_WARN(node_->get_logger(), "Received empty octomap message");
-          return;
-        }
-
-        std::unique_ptr<octomap::AbstractOcTree> octree_base;
-        if (msg->binary) {
-          octree_base.reset(octomap_msgs::binaryMsgToMap(*msg));
-        }
-        else {
-          octree_base.reset(octomap_msgs::fullMsgToMap(*msg));
-        }
-        if (!octree_base) {
-          RCLCPP_ERROR(node_->get_logger(),
-                       "Failed to convert %s octomap message to OcTree",
-                       msg->binary ? "binary" : "full");
-          return;
-        }
-
-        auto* octree = dynamic_cast<octomap::OcTree*>(octree_base.get());
-        if (!octree) {
-          RCLCPP_ERROR(node_->get_logger(), "Converted octomap is not an OcTree");
-          return;
-        }
-
-        auto cloud             = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
-        cloud->header.frame_id = _control_frame_;
-        cloud->points.reserve(octree->size());
-        const bool  needs_transform        = msg->header.frame_id != _control_frame_;
-        std::size_t total_leaf_count       = 0;
-        std::size_t occupied_leaf_count    = 0;
-        std::size_t transform_failed_count = 0;
-
-        for (auto it = octree->begin_leafs(), end = octree->end_leafs(); it != end; ++it) {
-          ++total_leaf_count;
-
-          if (!octree->isNodeOccupied(*it)) {
-            continue;
+    // Obstacle input. Any problem with it (no TF, empty/invalid octomap, empty cloud) only skips this
+    // update: the last cloud is kept and the controller keeps publishing references below. A `return`
+    // here used to leave the whole loop, so RBL stopped and path_control held position.
+    [&]() {
+      if (!pcl_enabled_) {
+        // no obstacle cloud input: free space (+ neighbours, handled by the partition)
+      }
+      else if (octomap_msg_) {
+        if (sh_octomap_.newMsg()) {
+          auto msg = sh_octomap_.getMsg();
+          if (!msg) {
+            RCLCPP_WARN(node_->get_logger(), "Received empty octomap message");
+            return;
           }
-          ++occupied_leaf_count;
 
-          geometry_msgs::msg::Point point_msg;
-          point_msg.x = it.getX();
-          point_msg.y = it.getY();
-          point_msg.z = it.getZ();
+          std::unique_ptr<octomap::AbstractOcTree> octree_base;
+          if (msg->binary) {
+            octree_base.reset(octomap_msgs::binaryMsgToMap(*msg));
+          }
+          else {
+            octree_base.reset(octomap_msgs::fullMsgToMap(*msg));
+          }
+          if (!octree_base) {
+            RCLCPP_ERROR(node_->get_logger(),
+                         "Failed to convert %s octomap message to OcTree",
+                         msg->binary ? "binary" : "full");
+            return;
+          }
 
-          if (needs_transform) {
-            geometry_msgs::msg::PointStamped point_stamped;
-            point_stamped.header = msg->header;
-            point_stamped.point  = point_msg;
+          auto* octree = dynamic_cast<octomap::OcTree*>(octree_base.get());
+          if (!octree) {
+            RCLCPP_ERROR(node_->get_logger(), "Converted octomap is not an OcTree");
+            return;
+          }
 
-            auto transformed_point = transformPoint(point_stamped, _control_frame_);
-            if (!transformed_point) {
-              ++transform_failed_count;
-              RCLCPP_WARN(node_->get_logger(),
-                          "Failed to transform octomap point from %s to %s",
-                          msg->header.frame_id.c_str(),
-                          _control_frame_.c_str());
+          auto cloud             = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+          cloud->header.frame_id = _control_frame_;
+          cloud->points.reserve(octree->size());
+          const bool  needs_transform        = msg->header.frame_id != _control_frame_;
+          std::size_t total_leaf_count       = 0;
+          std::size_t occupied_leaf_count    = 0;
+          std::size_t transform_failed_count = 0;
+
+          for (auto it = octree->begin_leafs(), end = octree->end_leafs(); it != end; ++it) {
+            ++total_leaf_count;
+
+            if (!octree->isNodeOccupied(*it)) {
               continue;
             }
+            ++occupied_leaf_count;
 
-            point_msg = transformed_point->point;
+            geometry_msgs::msg::Point point_msg;
+            point_msg.x = it.getX();
+            point_msg.y = it.getY();
+            point_msg.z = it.getZ();
+
+            if (needs_transform) {
+              geometry_msgs::msg::PointStamped point_stamped;
+              point_stamped.header = msg->header;
+              point_stamped.point  = point_msg;
+
+              auto transformed_point = transformPoint(point_stamped, _control_frame_);
+              if (!transformed_point) {
+                ++transform_failed_count;
+                RCLCPP_WARN(node_->get_logger(),
+                            "Failed to transform octomap point from %s to %s",
+                            msg->header.frame_id.c_str(),
+                            _control_frame_.c_str());
+                continue;
+              }
+
+              point_msg = transformed_point->point;
+            }
+
+            pcl::PointXYZI point;
+            point.x         = static_cast<float>(point_msg.x);
+            point.y         = static_cast<float>(point_msg.y);
+            point.z         = static_cast<float>(point_msg.z);
+            // Octomap cells are static obstacles, never reflective UAV markers -- keep them below
+            // rbl_controller.reflective_intensity_threshold.
+            point.intensity = 0.0f;
+            cloud->points.push_back(point);
           }
 
-          pcl::PointXYZI point;
-          point.x         = static_cast<float>(point_msg.x);
-          point.y         = static_cast<float>(point_msg.y);
-          point.z         = static_cast<float>(point_msg.z);
-          // Octomap cells are static obstacles, never reflective UAV markers -- keep them below
-          // rbl_controller.reflective_intensity_threshold.
-          point.intensity = 0.0f;
-          cloud->points.push_back(point);
-        }
+          cloud->width    = static_cast<std::uint32_t>(cloud->points.size());
+          cloud->height   = 1;
+          cloud->is_dense = true;
 
-        cloud->width    = static_cast<std::uint32_t>(cloud->points.size());
-        cloud->height   = 1;
-        cloud->is_dense = true;
-
-        RCLCPP_INFO_THROTTLE(node_->get_logger(),
-                             *clock_,
-                             2000,
-                             "Octomap stats: frame=%s -> %s, resolution=%.3f, total_leafs=%zu, occupied_leafs=%zu, "
-                             "transformed_points=%zu, "
-                             "transform_failures=%zu",
-                             msg->header.frame_id.c_str(),
-                             _control_frame_.c_str(),
-                             octree->getResolution(),
-                             total_leaf_count,
-                             occupied_leaf_count,
-                             cloud->points.size(),
-                             transform_failed_count);
-
-        if (cloud->empty()) {
-          RCLCPP_WARN_THROTTLE(node_->get_logger(),
+          RCLCPP_INFO_THROTTLE(node_->get_logger(),
                                *clock_,
                                2000,
-                               "Converted octomap cloud is empty. total_leafs=%zu, occupied_leafs=%zu, "
+                               "Octomap stats: frame=%s -> %s, resolution=%.3f, total_leafs=%zu, occupied_leafs=%zu, "
+                               "transformed_points=%zu, "
                                "transform_failures=%zu",
+                               msg->header.frame_id.c_str(),
+                               _control_frame_.c_str(),
+                               octree->getResolution(),
                                total_leaf_count,
                                occupied_leaf_count,
+                               cloud->points.size(),
                                transform_failed_count);
-        }
 
-        last_obstacle_cloud_ = cloud;
-        pcl_loaded_          = true;
+          if (cloud->empty()) {
+            RCLCPP_WARN_THROTTLE(node_->get_logger(),
+                                 *clock_,
+                                 2000,
+                                 "Converted octomap cloud is empty. total_leafs=%zu, occupied_leafs=%zu, "
+                                 "transform_failures=%zu",
+                                 total_leaf_count,
+                                 occupied_leaf_count,
+                                 transform_failed_count);
+          }
 
-        {
-          std::scoped_lock lck(mtx_rbl_);
-          rbl_controller_->setPCL(last_obstacle_cloud_);
+          last_obstacle_cloud_ = cloud;
+          pcl_loaded_          = true;
+
+          {
+            std::scoped_lock lck(mtx_rbl_);
+            rbl_controller_->setPCL(last_obstacle_cloud_);
+          }
+          RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
         }
-        RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
       }
-    }
-    else {
-      if (sh_pcl_.newMsg()) {
-        auto msg = sh_pcl_.getMsg();
+      else {
+        if (sh_pcl_.newMsg()) {
+          auto msg = sh_pcl_.getMsg();
 
-        // Unlike the octomap branch above, this used to feed *msg straight into pcl::fromROSMsg
-        // with no transform at all -- harmless as long as pcl_topic was already published in
-        // control_frame (e.g. map_generator's synthetic global cloud), but silently wrong for any
-        // sensor whose cloud arrives in its own moving sensor frame (e.g. a real onboard lidar):
-        // every point's raw sensor-relative (x,y,z) was being treated as if it were already a
-        // control_frame coordinate.
-        auto transformed = transformCloud(*msg, _control_frame_);
-        if (!transformed) {
-          return;
+          // Empty cloud (nothing sensed): free space. Not transformed: a cloud without points often has no
+          // fields either, and tf2's PointCloud2 transform throws (uncaught) on a missing "x" field.
+          // fromROSMsg would also spam "Failed to find match for field" for it.
+          if (msg->width * msg->height == 0 || msg->data.empty()) {
+            pcl::PointCloud<pcl::PointXYZI> tmp;
+            if (have_agent_pos_world_) {
+              static_map_->update(tmp, agent_pos_world_);  // fades cells out of range
+              tmp += static_map_->getOccupiedCloud();
+            }
+            last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
+            pcl_loaded_          = true;
+            RCLCPP_INFO_THROTTLE(node_->get_logger(), *clock_, 5000,
+                                 "Empty obstacle cloud received: free space (+ %zu static map points)",
+                                 tmp.size());
+            return;
+          }
+
+          // Unlike the octomap branch above, this used to feed *msg straight into pcl::fromROSMsg
+          // with no transform at all -- harmless as long as pcl_topic was already published in
+          // control_frame (e.g. map_generator's synthetic global cloud), but silently wrong for any
+          // sensor whose cloud arrives in its own moving sensor frame (e.g. a real onboard lidar):
+          // every point's raw sensor-relative (x,y,z) was being treated as if it were already a
+          // control_frame coordinate.
+          std::optional<sensor_msgs::msg::PointCloud2> transformed;
+          try {
+            transformed = transformCloud(*msg, _control_frame_);
+          }
+          catch (const std::exception& ex) {  // e.g. malformed cloud (missing x/y/z fields)
+            RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 2000, "Obstacle cloud ignored: %s", ex.what());
+          }
+          if (!transformed) {
+            return;  // keep the last cloud
+          }
+
+          pcl::PointCloud<pcl::PointXYZI> tmp;
+          pcl::fromROSMsg(*transformed, tmp);
+
+          // Merge in the bounded local static-obstacle map (see LocalStaticMap) before this cloud
+          // reaches rbl_controller_ at all -- both the reactive CIRI partition and the replanner's
+          // grid read from the same setPCL()'d cloud downstream, so this one merge point covers
+          // both. Needs a live agent position for the ray origin (free-space carving), so skip until
+          // odometry has actually arrived at least once.
+          if (have_agent_pos_world_) {
+            static_map_->update(tmp, agent_pos_world_);
+            tmp += static_map_->getOccupiedCloud();
+          }
+
+          last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
+
+          pcl_loaded_ = true;
+
+          {
+            std::scoped_lock lck(mtx_rbl_);
+            rbl_controller_->setPCL(last_obstacle_cloud_);
+          }
+          RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
         }
-
-        pcl::PointCloud<pcl::PointXYZI> tmp;
-        pcl::fromROSMsg(*transformed, tmp);
-
-        // Merge in the bounded local static-obstacle map (see LocalStaticMap) before this cloud
-        // reaches rbl_controller_ at all -- both the reactive CIRI partition and the replanner's
-        // grid read from the same setPCL()'d cloud downstream, so this one merge point covers
-        // both. Needs a live agent position for the ray origin (free-space carving), so skip until
-        // odometry has actually arrived at least once.
-        if (have_agent_pos_world_) {
-          static_map_->update(tmp, agent_pos_world_);
-          tmp += static_map_->getOccupiedCloud();
-        }
-
-        last_obstacle_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZI>>(tmp);
-
-        pcl_loaded_ = true;
-
-        {
-          std::scoped_lock lck(mtx_rbl_);
-          rbl_controller_->setPCL(last_obstacle_cloud_);
-        }
-        RCLCPP_INFO_ONCE(node_->get_logger(), "Setted last pcl to rbl");
       }
-    }
+    }();
 
     // No cloud received yet: keep running with an empty cloud, i.e. free space,
     // so RBL can be activated and fly without a point cloud source.
