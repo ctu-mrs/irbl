@@ -144,6 +144,7 @@ public:
             return;
           }
           arm_requested_  = true;
+          px4_in_control_ = false;  // stream the offboard setpoints again (OFFBOARD needs them first)
           setpoint_count_ = 0;
           // take off on the climb setpoint, not on a stale reference (e.g. the last one of the landing)
           have_reference_          = false;
@@ -158,6 +159,7 @@ public:
                          std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
           publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND);
           RCLCPP_INFO(get_logger(), "Landing (NAV_LAND)");
+          px4_in_control_ = true;
           resetAfterLanding();
           res->success = true;
           res->message = "land command sent";
@@ -182,6 +184,7 @@ public:
           // PLD_MAX_SRCH attempts)
           publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1.0f, 4.0f, 9.0f);
           RCLCPP_INFO(get_logger(), "Precision landing (AUTO_PRECLAND)");
+          px4_in_control_ = true;
           resetAfterLanding();
           res->success = true;
           res->message = "precision landing mode requested";
@@ -290,6 +293,11 @@ private:
 
   void timerCallback()
   {
+    // Once a PX4 mode (Land / AUTO_PRECLAND) has taken over, stop streaming: the DDS
+    // trajectory_setpoint lands on the same uORB topic the AUTO flight task publishes, and
+    // mc_pos_control then alternates between both -- the vehicle hovered halfway between the
+    // precland target and the last rbl reference (12-18 cm off), never got within PLD_HACC_RAD.
+    if (px4_in_control_) return;
     publishOffboardControlMode();
     publishTrajectorySetpoint();
 
@@ -480,6 +488,7 @@ private:
   bool            armed_and_offboard_ = false;
   int             setpoint_count_     = 0;
   bool            arm_requested_      = false;
+  bool            px4_in_control_     = false;  // after ~/land or ~/precland, until ~/arm
   bool            verify_takeoff_     = false;
   rclcpp::Time    arm_sent_;
   double          arm_retry_timeout_  = 5.0;

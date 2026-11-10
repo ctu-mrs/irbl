@@ -12,6 +12,21 @@
 //   smoothing greedy line-of-sight shortcuts that never get closer to the obstacles than the A* path
 //             they replace did (capped at preferred_clearance), then resampled every
 //             `sample_spacing` (a dense path for rbl_controller's path following).
+//
+// Traffic rules (`keep_right`, default on): the step cost depends on the direction of travel, so two
+// vehicles going opposite ways through the same aisle use different lanes (less head-on congestion):
+//   lane      per cell, the unit vector n pointing AWAY from the nearest obstacle (gradient of the
+//             distance field; 0 in the open, farther than `lane_band`). Moving in direction d, the
+//             nearest obstacle is on the right iff n . right(d) < 0.
+//   wrong     obstacle on the LEFT (= the vehicle is on the left half of the corridor for its
+//             direction): `wrong_way_weight` * (n . right(d)) per metre.
+//   hug       |dist - lane_offset| * `lane_weight` per metre, tapering to 0 at `lane_band`: the right
+//             lane is the line `lane_offset` from the right-hand obstacle (the corridor middle costs
+//             the most, open space nothing). Replaces the preferred_clearance cost.
+//   Right turns are tight, left turns wide, as on a road. The shortcuts of the smoothing are kept only
+//   if they cost no more (same direction-dependent cost) than the A* stretch they replace, so they
+//   do not cut across the lanes. laneArrows() gives the preferred direction along the lane lines
+//   (for rviz).
 #pragma once
 
 #include <algorithm>
@@ -41,6 +56,17 @@ public:
     double margin{2.0};               // [m] grid extent beyond the obstacles
     double snap_radius{1.0};          // [m] start / goal may move this far to a free cell
     double sample_spacing{0.5};       // [m] spacing of the returned path
+    // traffic rules (see the top of this file)
+    bool   keep_right{true};
+    double lane_offset{0.85};         // [m] right lane = this far from the obstacle on the right
+    double lane_band{2.2};            // [m] lane costs fade out at this distance from obstacles
+    double lane_weight{1.0};          // cost per metre, per metre off the lane line
+    double wrong_way_weight{2.0};     // cost per metre on the wrong (left) side
+  };
+
+  struct Arrow
+  {
+    Vec3 p, d;  // position, unit direction of travel
   };
 
   GlobalPlanner2D(const std::vector<Box>& obstacles, Params p) : p_(p)
@@ -59,7 +85,7 @@ public:
     ox_ = x0 - p_.margin, oy_ = y0 - p_.margin;
     nx_ = static_cast<int>(std::ceil((x1 - x0 + 2 * p_.margin) / p_.resolution)) + 1;
     ny_ = static_cast<int>(std::ceil((y1 - y0 + 2 * p_.margin) / p_.resolution)) + 1;
-    cap_ = std::max(p_.clearance, p_.preferred_clearance) + p_.resolution;
+    cap_ = std::max({p_.clearance, p_.preferred_clearance, p_.keep_right ? p_.lane_band : 0.0}) + p_.resolution;
     dist_.assign(static_cast<size_t>(nx_) * ny_, static_cast<float>(cap_));
     for (const auto& b : band) {
       const int i0 = std::max(0, cellX(b.lo.x - cap_)), i1 = std::min(nx_ - 1, cellX(b.hi.x + cap_));
@@ -72,6 +98,21 @@ public:
           float&       d  = dist_[idx(i, j)];
           d               = std::min(d, static_cast<float>(std::hypot(dx, dy)));
         }
+      }
+    }
+    // unit gradient of the distance field (points away from the nearest obstacle), 0 in the open
+    gx_.assign(dist_.size(), 0.0f);
+    gy_.assign(dist_.size(), 0.0f);
+    for (int i = 1; i + 1 < nx_; ++i) {
+      for (int j = 1; j + 1 < ny_; ++j) {
+        const size_t k = idx(i, j);
+        if (dist_[k] >= cap_ - p_.resolution) continue;
+        const double gx = dist_[idx(i + 1, j)] - dist_[idx(i - 1, j)];
+        const double gy = dist_[idx(i, j + 1)] - dist_[idx(i, j - 1)];
+        const double gn = std::hypot(gx, gy);
+        if (gn < 0.5 * p_.resolution) continue;  // ridge between two obstacles (corridor middle)
+        gx_[k] = static_cast<float>(gx / gn);
+        gy_[k] = static_cast<float>(gy / gn);
       }
     }
   }
@@ -126,8 +167,7 @@ public:
           const int k = static_cast<int>(idx(i, j));
           if (closed[k] || !free(k)) continue;
           const double step = p_.resolution * ((di && dj) ? M_SQRT2 : 1.0);
-          const double pen  = p_.clearance_weight * std::max(0.0, p_.preferred_clearance - dist_[k]);
-          const float  gn   = gcost[c] + static_cast<float>(step * (1.0 + pen));
+          const float  gn   = gcost[c] + static_cast<float>(step * (1.0 + penalty(k, di, dj)));
           if (gn < gcost[k]) {
             gcost[k]  = gn;
             parent[k] = c;
@@ -154,8 +194,11 @@ public:
       size_t best    = b;
       for (size_t k = b + 1; k < cells.size(); ++k) {
         min_sub = std::min(min_sub, dist_[idx(cells[k])]);
-        const float need = std::min(min_sub, static_cast<float>(p_.preferred_clearance));
-        if (lineClear(cells[a], cells[k], need)) best = k;
+        const float need = std::min(min_sub, static_cast<float>(p_.keep_right ? p_.lane_offset : p_.preferred_clearance));
+        if (!lineClear(cells[a], cells[k], need)) continue;
+        // keep_right: the shortcut must not cost more than the A* stretch (it would cut across lanes)
+        if (p_.keep_right && lineCost(cells[a], cells[k]) > gcost[idx(cells[k])] - gcost[idx(cells[a])] + 1e-3) continue;
+        best = k;
       }
       keep.push_back(cells[best]);
       a = best;
@@ -191,6 +234,37 @@ public:
     return L;
   }
 
+  // keep_right: arrows along the right lanes (cells at lane_offset from an obstacle on their right),
+  // thinned to about one per `spacing` metres
+  std::vector<Arrow> laneArrows(double spacing = 1.0) const
+  {
+    std::vector<Arrow> out;
+    if (!p_.keep_right) return out;
+    const double tol  = 0.5 * p_.resolution;
+    const int    step = std::max(1, static_cast<int>(std::lround(spacing / p_.resolution)));
+    std::vector<char> taken(dist_.size(), 0);
+    for (int i = 1; i + 1 < nx_; ++i) {
+      for (int j = 1; j + 1 < ny_; ++j) {
+        const size_t k = idx(i, j);
+        if (!free(k) || std::abs(dist_[k] - p_.lane_offset) > tol || (gx_[k] == 0.0f && gy_[k] == 0.0f)) continue;
+        bool near = false;  // thinning: no other arrow within `step` cells
+        for (int a = std::max(0, i - step + 1); a <= std::min(nx_ - 1, i + step - 1) && !near; ++a) {
+          for (int b = std::max(0, j - step + 1); b <= std::min(ny_ - 1, j + step - 1); ++b) {
+            if (taken[idx(a, b)]) {
+              near = true;
+              break;
+            }
+          }
+        }
+        if (near) continue;
+        taken[k] = 1;
+        // obstacle on the right: travel direction = n rotated by -90 deg
+        out.push_back(Arrow{Vec3{wx(i), wy(j), 0.0}, Vec3{gy_[k], -gx_[k], 0.0}});
+      }
+    }
+    return out;
+  }
+
   // planar distance from p to the nearest obstacle of the band (capped)
   double clearanceAt(const Vec3& p) const
   {
@@ -207,6 +281,38 @@ private:
   size_t idx(int i, int j) const { return static_cast<size_t>(i) * ny_ + j; }
   size_t idx(const std::pair<int, int>& c) const { return idx(c.first, c.second); }
   bool   free(size_t k) const { return dist_[k] >= p_.clearance; }
+
+  // extra cost per metre of moving through cell k in direction (dx, dy) (any length)
+  double penalty(size_t k, double dx, double dy) const
+  {
+    const double d = dist_[k];
+    if (!p_.keep_right) return p_.clearance_weight * std::max(0.0, p_.preferred_clearance - d);
+    if (d >= p_.lane_band) return 0.0;
+    const double n = std::hypot(dx, dy);
+    // right(d) = (dy, -dx); side > 0: the nearest obstacle is on the left
+    const double side  = (gx_[k] * dy - gy_[k] * dx) / n;
+    const double wrong = p_.wrong_way_weight * std::max(0.0, side);
+    // |d - lane_offset|, tapering linearly to 0 at lane_band beyond the peak half way out
+    const double peak = 0.5 * (p_.lane_offset + p_.lane_band);
+    double       off  = d <= peak ? std::abs(d - p_.lane_offset) : (peak - p_.lane_offset) * (p_.lane_band - d) / (p_.lane_band - peak);
+    return wrong + p_.lane_weight * off;
+  }
+
+  // cost of the straight line a-b with the A* step cost (sampled every half cell)
+  float lineCost(const std::pair<int, int>& a, const std::pair<int, int>& b) const
+  {
+    const double di = b.first - a.first, dj = b.second - a.second;
+    const int    m  = std::max(1, static_cast<int>(std::ceil(2.0 * std::max(std::abs(di), std::abs(dj)))));
+    const double ds = p_.resolution * std::hypot(di, dj) / m;
+    double       c  = 0.0;
+    for (int t = 1; t <= m; ++t) {
+      const double u = static_cast<double>(t) / m;
+      const int    i = static_cast<int>(std::lround(a.first + di * u));
+      const int    j = static_cast<int>(std::lround(a.second + dj * u));
+      c += ds * (1.0 + penalty(idx(i, j), di, dj));
+    }
+    return static_cast<float>(c);
+  }
 
   std::optional<std::pair<int, int>> snap(const Vec3& p) const
   {
@@ -259,6 +365,7 @@ private:
   double             ox_{0}, oy_{0}, cap_{1};
   int                nx_{1}, ny_{1};
   std::vector<float> dist_;
+  std::vector<float> gx_, gy_;  // unit gradient of dist_ (0 in the open / on ridges)
 };
 
 }  // namespace rbl_mission

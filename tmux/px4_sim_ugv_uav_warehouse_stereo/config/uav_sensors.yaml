@@ -1,0 +1,19 @@
+# Sensor extrinsics of the x500_stereo_cam_down model (models/x500_stereo_cam_down/model.sdf),
+# relative to the flight controller ("fcu") frame = the x500's base_link. publish_sensor_tf.sh
+# publishes each entry as a static TF "<uav_name>/fcu" -> frame_id, parented on the frame px4_bridge
+# broadcasts live, so rbl_controller can bring the depth cloud into control_frame. Keep in sync
+# with model.sdf.
+#
+# translation: [x, y, z] in meters (FLU), rotation: [roll, pitch, yaw] in radians.
+sensors:
+  # forward stereo depth camera (as px4_sim_warehouse_inspection_stereo's x500_stereo). Gazebo's
+  # depth cloud is x forward / y left / z up in "uav_stereo_link" (not optical): just the mount.
+  - frame_id: uav_stereo_link
+    translation: [0.12, 0.0, 0.242]
+    rotation: [0.0, 0.0, 0.0]
+
+  # Down camera (precision landing on the UGV's ArUco marker): gz camera frame (x along the view =
+  # down, y left in the image, z up in the image = forward).
+  - frame_id: down_cam_link
+    translation: [-0.06, 0.0, -0.06]
+    rotation: [0.0, 1.5708, 0.0]

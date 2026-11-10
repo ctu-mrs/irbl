@@ -1,0 +1,240 @@
+# TWO UGV + UAV pairs doing warehouse shelf inspection at the same time: each pair is exactly
+# ../px4_sim_ugv_uav_warehouse_stereo's (stereo depth cameras, rbl_controller on both vehicles, UAV
+# carried on the UGV deck, PX4 precision landing on its ArUco marker), with its own mission node.
+#
+#   pair 1: ugv1 (PX4 instance 0, hosts the gz world) + uav1 (instance 1), spawn (0, 0),
+#           ArUco board ids 0-4, mission node /ugv_uav_mission_1
+#   pair 2: ugv2 (instance 2) + uav2 (instance 3), spawn (0, -4.2), ArUco board ids 5-9 (each UAV only
+#           lands on its own UGV; boards: models/make_deck_boards.py), mission node /ugv_uav_mission_2
+#
+# The pairs do not know about each other: each vehicle's rbl_controller avoids the other pair's
+# vehicles like any other obstacle its stereo camera sees (each UGV only cuts its OWN UAV out of its
+# cloud, filter_agents). The global planner of each mission plans on the static map only.
+#
+#   ./start.sh      then, once all four px4_bridge panes printed 'Arming' / 'px4_bridge started':
+#   ./deploy.sh pair 1 row 5 column 2 left
+#   ./deploy.sh pair 2 row 3 column 3 right        (both prepared in the `mission` window history)
+#   ./deploy.sh abort                               both pairs hold   (./deploy.sh pair 2 abort: one)
+#   ./kill.sh
+#
+# The UGVs carry a 0.40 x 0.40 m cargo deck (landing surface, the size of the r1_rover body).
+# Configs: config/uav_rbl.yaml, {ugv,uav}_px4.yaml, warehouse_map.yaml are links to
+# ../px4_sim_ugv_uav_warehouse_stereo's (same tuning), config/ugv_rbl.yaml is a copy; ugv2's rbl config is that file with
+# /uav1/odometry -> /uav2/odometry in filter_agents, written to /tmp at start (rbl_controller pane).
+# Airframes 4043 / 4044 come from ../px4_sim_ugv_uav_warehouse_stereo/airframes (chosen by
+# PX4_SYS_AUTOSTART, so the per-vehicle model names need no airframe of their own).
+root: ./
+name: ugv_uav_warehouse_2pairs
+socket_name: whugvuav2p
+attach: false
+tmux_options: -f ./tmux.conf
+startup_window: mission
+pre_window:
+  - . ./env.sh
+  # PX4 spawns only from its own Tools/simulation/gz/{worlds,models}: link this folder's in
+  - for w in ./worlds/*.sdf; do ln -sfn "$(readlink -f $w)" "$PX4_DIR/Tools/simulation/gz/worlds/$(basename $w)" 2>/dev/null; done
+  - for m in ./models/*/; do ln -sfn "$(readlink -f $m)" "$PX4_DIR/Tools/simulation/gz/models/$(basename $m)" 2>/dev/null; done
+  - if [ -n "$ZSH_VERSION" ]; then RSH=zsh; else RSH=bash; fi
+  - source /opt/ros/jazzy/setup.$RSH
+  - source ${IRBL_INSTALL:-../../../../install}/setup.$RSH
+  - export ATUIN_FILTER_MODE=session
+windows:
+  - mission:
+      layout: tiled
+      panes:
+        # coordinators, one per pair (each waits for its rbl_controllers and its UAV's inspection node)
+        # 0.40 m deck (models/ugv<k>_carrier_stereo) = the r1_rover body: the defaults apply
+        # (mission.deck_tolerance 0.15, warehouse_map.yaml's mission / planner.ugv_clearance 0.6)
+        - until ros2 service list 2>/dev/null | grep -q "/ugv1/rbl_controller/goto" &&
+          ros2 service list 2>/dev/null | grep -q "/uav1/warehouse_inspection/inspect"; do sleep 1; done;
+          ros2 run rbl_mission ugv_uav_mission_node --ros-args -r __node:=ugv_uav_mission_1
+          --params-file ./config/warehouse_map.yaml -p use_sim_time:=true
+          -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+          -p ugv:=ugv1 -p uav:=uav1 -p detach_topic:=/ugv1/uav_detach
+          -p attach_topic:=/ugv1/uav_attach -p planner.mode:=$PLANNER
+        - until ros2 service list 2>/dev/null | grep -q "/ugv2/rbl_controller/goto" &&
+          ros2 service list 2>/dev/null | grep -q "/uav2/warehouse_inspection/inspect"; do sleep 1; done;
+          ros2 run rbl_mission ugv_uav_mission_node --ros-args -r __node:=ugv_uav_mission_2
+          --params-file ./config/warehouse_map.yaml -p use_sim_time:=true
+          -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+          -p ugv:=ugv2 -p uav:=uav2 -p detach_topic:=/ugv2/uav_detach
+          -p attach_topic:=/ugv2/uav_attach -p planner.mode:=$PLANNER
+        # deployment phase of each pair
+        - ros2 topic echo /ugv_uav_mission_1/state std_msgs/msg/String --qos-durability transient_local --field data
+        - ros2 topic echo /ugv_uav_mission_2/state std_msgs/msg/String --qos-durability transient_local --field data
+        # each UAV's task inside INSPECT
+        - ros2 topic echo /uav1/warehouse_inspection/state std_msgs/msg/String --qos-durability transient_local --field data
+        - ros2 topic echo /uav2/warehouse_inspection/state std_msgs/msg/String --qos-durability transient_local --field data
+        # operator pane
+        - echo "Wait for 'Arming' in the px4_bridge window (both UGVs) and ~30 s more, then
+          ./deploy.sh pair <1|2> row <r> column <c> <left|right>   (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)";
+          if [ -n "$ZSH_VERSION" ]; then print -s './deploy.sh abort'; print -s './deploy.sh pair 1 row 5 column 2 left'; print -s './deploy.sh pair 2 row 3 column 3 right';
+          else history -s './deploy.sh abort'; history -s './deploy.sh pair 1 row 5 column 2 left'; history -s './deploy.sh pair 2 row 3 column 3 right'; fi
+  - micro_xrce_agent:
+      layout: tiled
+      panes:
+        # one agent serves all four PX4 instances (each in its own namespace)
+        - MicroXRCEAgent udp4 -p 8888
+  - px4_sitl:
+      layout: tiled
+      panes:
+        # instance 0: ugv1, starts the gz world
+        - cp ../px4_sim_ugv_uav_warehouse_stereo/airframes/* $PX4_DIR/build/px4_sitl_default/etc/init.d-posix/airframes/ &&
+          cd $PX4_DIR/build/px4_sitl_default/rootfs &&
+          HEADLESS=$HEADLESS PX4_SYS_AUTOSTART=4044 PX4_SIM_MODEL=gz_ugv1_carrier_stereo
+          PX4_GZ_MODEL_POSE="$UGV1_X,$UGV1_Y,$UGV_SPAWN_Z,0,0,0" GZ_IP=127.0.0.1 PX4_UXRCE_DDS_NS=ugv_1
+          ../bin/px4 -i 0
+        # instance 1: uav1, on ugv1's deck once ugv1 is in the world
+        - cd $PX4_DIR && until [ -f ./build/px4_sitl_default/etc/init.d-posix/airframes/4043_gz_x500_stereo_cam_down_carried ]; do sleep 1; done;
+          until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/model/ugv1_carrier_stereo_0/"; do sleep 1; done;
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SYS_AUTOSTART=4043 PX4_SIM_MODEL=gz_uav1_x500_stereo
+          PX4_GZ_MODEL_POSE="$UGV1_X,$UGV1_Y,$UAV_SPAWN_Z,0,0,0" PX4_UXRCE_DDS_NS=uav_1
+          ./build/px4_sitl_default/bin/px4 -i 1
+        # instance 2: ugv2, joins the world once ugv1 is in it
+        - cd $PX4_DIR && until [ -f ./build/px4_sitl_default/etc/init.d-posix/airframes/4044_gz_r1_rover_carrier_stereo ]; do sleep 1; done;
+          until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/model/ugv1_carrier_stereo_0/"; do sleep 1; done;
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SYS_AUTOSTART=4044 PX4_SIM_MODEL=gz_ugv2_carrier_stereo
+          PX4_GZ_MODEL_POSE="$UGV2_X,$UGV2_Y,$UGV_SPAWN_Z,0,0,0" PX4_UXRCE_DDS_NS=ugv_2
+          ./build/px4_sitl_default/bin/px4 -i 2
+        # instance 3: uav2, on ugv2's deck
+        - cd $PX4_DIR && until [ -f ./build/px4_sitl_default/etc/init.d-posix/airframes/4043_gz_x500_stereo_cam_down_carried ]; do sleep 1; done;
+          until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/model/ugv2_carrier_stereo_2/"; do sleep 1; done;
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SYS_AUTOSTART=4043 PX4_SIM_MODEL=gz_uav2_x500_stereo
+          PX4_GZ_MODEL_POSE="$UGV2_X,$UGV2_Y,$UAV_SPAWN_Z,0,0,0" PX4_UXRCE_DDS_NS=uav_2
+          ./build/px4_sitl_default/bin/px4 -i 3
+  - px4_params:
+      layout: tiled
+      panes:
+        - ./set_px4_params.sh px4_sitl.0 config/ugv_px4.yaml
+        - ./set_px4_params.sh px4_sitl.1 config/uav_px4.yaml
+        - ./set_px4_params.sh px4_sitl.2 config/ugv_px4.yaml
+        - ./set_px4_params.sh px4_sitl.3 config/uav_px4.yaml
+  - gz_bridges:
+      layout: tiled
+      panes:
+        - until gz topic -l 2>/dev/null | grep -q "/world/$PX4_GZ_WORLD/clock"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge
+          "/world/$PX4_GZ_WORLD/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+          --ros-args -r "/world/$PX4_GZ_WORLD/clock:=/clock"
+        # stereo depth clouds (+ depth images) -> /<vehicle>/sensors/stereo/{points,depth}
+        # (frame <vehicle>/stereo_link, x forward); one bridge per vehicle
+        - for V in ugv1:ugv1_carrier_stereo_0 uav1:uav1_x500_stereo_1 ugv2:ugv2_carrier_stereo_2 uav2:uav2_x500_stereo_3; do
+          N=${V%%:*}; M=${V#*:};
+          S="/world/$PX4_GZ_WORLD/model/$M/link/stereo_link/sensor/stereo_depth/depth_image";
+          ( until gz topic -l 2>/dev/null | grep -q "$S/points"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge "$S/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked"
+          "$S@sensor_msgs/msg/Image[gz.msgs.Image"
+          --ros-args -r "$S/points:=/$N/sensors/stereo/points" -r "$S:=/$N/sensors/stereo/depth"
+          -p use_sim_time:=true -r __node:=${N}_stereo_bridge ) & done; wait
+        # UAV down cameras -> /<uav>/sensors/down_cam/{image,camera_info} (precision landing)
+        - for V in uav1:uav1_x500_stereo_1 uav2:uav2_x500_stereo_3; do
+          N=${V%%:*}; M=${V#*:};
+          S="/world/$PX4_GZ_WORLD/model/$M/link/down_cam_link/sensor/down_cam";
+          ( until gz topic -l 2>/dev/null | grep -q "$S/image"; do sleep 1; done;
+          ros2 run ros_gz_bridge parameter_bridge "$S/image@sensor_msgs/msg/Image[gz.msgs.Image"
+          "$S/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
+          --ros-args -r "$S/image:=/$N/sensors/down_cam/image"
+          -r "$S/camera_info:=/$N/sensors/down_cam/camera_info" -p use_sim_time:=true -r __node:=${N}_down_cam_bridge ) & done; wait
+        # ROS -> gz: release / re-attach each UAV on its UGV's deck
+        - ros2 run ros_gz_bridge parameter_bridge
+          "/ugv1/uav_detach@std_msgs/msg/Empty]gz.msgs.Empty" "/ugv1/uav_attach@std_msgs/msg/Empty]gz.msgs.Empty"
+          "/ugv2/uav_detach@std_msgs/msg/Empty]gz.msgs.Empty" "/ugv2/uav_attach@std_msgs/msg/Empty]gz.msgs.Empty"
+          --ros-args -r __node:=uav_dock_bridge
+  - sensor_tf:
+      layout: tiled
+      panes:
+        - ./publish_sensor_tf.sh ugv1 config/ugv_sensors.yaml
+        - ./publish_sensor_tf.sh uav1 config/uav_sensors.yaml
+        - ./publish_sensor_tf.sh ugv2 config/ugv_sensors.yaml
+        - ./publish_sensor_tf.sh uav2 config/uav_sensors.yaml
+  - px4_bridge:
+      layout: tiled
+      panes:
+        # UGVs: arm right away and hold their spawn point until rbl_controller sends references
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/ugv1
+          -p uav_name:=ugv1 -p control_frame:=$CONTROL_FRAME
+          -p home_offset_x:=$UGV1_X -p home_offset_y:=$UGV1_Y -p home_offset_z:=$UGV_HOME_Z
+          -p takeoff_altitude:=0.0 -p auto_arm:=true -p max_setpoint_speed:=1.0 -p ground_vehicle:=true
+          -p use_sim_time:=true -p publish_rate:=20.0 -p target_system:=1 -p px4_ns:=ugv_1
+        # UAVs: disarmed on the deck until their mission calls ~/arm
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/uav1
+          -p uav_name:=uav1 -p control_frame:=$CONTROL_FRAME
+          -p home_offset_x:=$UGV1_X -p home_offset_y:=$UGV1_Y -p home_offset_z:=$UAV_HOME_Z
+          -p takeoff_altitude:=1.5 -p auto_arm:=false -p takeoff_at_current_position:=true
+          -p use_sim_time:=true -p publish_rate:=50.0 -p target_system:=2 -p px4_ns:=uav_1
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/ugv2
+          -p uav_name:=ugv2 -p control_frame:=$CONTROL_FRAME
+          -p home_offset_x:=$UGV2_X -p home_offset_y:=$UGV2_Y -p home_offset_z:=$UGV_HOME_Z
+          -p takeoff_altitude:=0.0 -p auto_arm:=true -p max_setpoint_speed:=1.0 -p ground_vehicle:=true
+          -p use_sim_time:=true -p publish_rate:=20.0 -p target_system:=3 -p px4_ns:=ugv_2
+        - ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/uav2
+          -p uav_name:=uav2 -p control_frame:=$CONTROL_FRAME
+          -p home_offset_x:=$UGV2_X -p home_offset_y:=$UGV2_Y -p home_offset_z:=$UAV_HOME_Z
+          -p takeoff_altitude:=1.5 -p auto_arm:=false -p takeoff_at_current_position:=true
+          -p use_sim_time:=true -p publish_rate:=50.0 -p target_system:=4 -p px4_ns:=uav_2
+  - rbl_controller:
+      layout: tiled
+      panes:
+        - ros2 launch rbl_controller_node rbl_controller.launch.py uav_name:=ugv1
+          custom_config:=./config/ugv_rbl.yaml pcl_topic:=/ugv1/sensors/stereo/points control_frame:=$CONTROL_FRAME
+        - ros2 launch rbl_controller_node rbl_controller.launch.py uav_name:=uav1
+          custom_config:=./config/uav_rbl.yaml pcl_topic:=/uav1/sensors/stereo/points control_frame:=$CONTROL_FRAME
+        # ugv2: the shared UGV config with its own UAV in filter_agents
+        - C=/tmp/ugv_uav_warehouse_2pairs_ugv2_rbl.yaml; sed 's#/uav1/odometry#/uav2/odometry#' ./config/ugv_rbl.yaml > $C &&
+          grep -q '/uav2/odometry' $C && ros2 launch rbl_controller_node rbl_controller.launch.py uav_name:=ugv2
+          custom_config:=$C pcl_topic:=/ugv2/sensors/stereo/points control_frame:=$CONTROL_FRAME
+        - ros2 launch rbl_controller_node rbl_controller.launch.py uav_name:=uav2
+          custom_config:=./config/uav_rbl.yaml pcl_topic:=/uav2/sensors/stereo/points control_frame:=$CONTROL_FRAME
+  - inspection:
+      layout: tiled
+      panes:
+        # each UAV's down camera -> its own UGV's ArUco landing board (uav1: ids 0-4, uav2: ids 5-9; layout
+        # in models/make_deck_boards.py: 0.05 m centre marker, visible until touchdown, + four 0.11 m) -> its PX4
+        # (MAVLink TARGET_RELATIVE to onboard port 14580 + instance, MAV_SYS_ID instance + 1)
+        # odometry_topic: detections placed with the UAV pose at image capture + median filtered,
+        # sent as LOCAL_NED (PX4 otherwise uses its pose at reception: tilt/latency errors)
+        - ros2 run rbl_mission aruco_landing_target.py --ros-args -r __ns:=/uav1
+          -r image:=/uav1/sensors/down_cam/image -r camera_info:=/uav1/sensors/down_cam/camera_info
+          -p use_sim_time:=true -p body_frame:=uav1/fcu -p mavlink_port:=14581
+          -p mavlink_sysid:=2 -p "board_ids:=[0, 1, 2, 3, 4]"
+          -p "board_sizes:=[0.05, 0.11, 0.11, 0.11, 0.11]"
+          -p "board_centers:=[0.0, 0.0, -0.095, 0.095, 0.095, 0.095, 0.095, -0.095, -0.095, -0.095]"
+          -p odometry_topic:=/uav_1/fmu/out/vehicle_odometry
+        - ros2 run rbl_mission aruco_landing_target.py --ros-args -r __ns:=/uav2
+          -r image:=/uav2/sensors/down_cam/image -r camera_info:=/uav2/sensors/down_cam/camera_info
+          -p use_sim_time:=true -p body_frame:=uav2/fcu -p mavlink_port:=14583
+          -p mavlink_sysid:=4 -p "board_ids:=[5, 6, 7, 8, 9]"
+          -p "board_sizes:=[0.05, 0.11, 0.11, 0.11, 0.11]"
+          -p "board_centers:=[0.0, 0.0, -0.095, 0.095, 0.095, 0.095, 0.095, -0.095, -0.095, -0.095]"
+          -p odometry_topic:=/uav_2/fmu/out/vehicle_odometry
+        # each UAV's shelf coverage, driven by its pair's coordinator
+        - until ros2 service list 2>/dev/null | grep -q "/uav1/rbl_controller/goto"; do sleep 1; done;
+          ros2 run rbl_mission warehouse_inspection_node --ros-args -r __ns:=/uav1
+          --params-file ./config/warehouse_map.yaml -p use_sim_time:=true -p planner.mode:=$PLANNER
+          -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+        - until ros2 service list 2>/dev/null | grep -q "/uav2/rbl_controller/goto"; do sleep 1; done;
+          ros2 run rbl_mission warehouse_inspection_node --ros-args -r __ns:=/uav2
+          --params-file ./config/warehouse_map.yaml -p use_sim_time:=true -p planner.mode:=$PLANNER
+          -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+  - viz:
+      layout: tiled
+      panes:
+        # one mission_viz per pair (its vehicles + phase); pair 1's also draws the warehouse / grid
+        - ros2 run rbl_mission mission_viz_node --ros-args --params-file ./config/warehouse_map.yaml
+          -p use_sim_time:=true -p frame:=$CONTROL_FRAME -r __node:=mission_viz
+          -r /ugv_uav_mission/state:=/ugv_uav_mission_1/state
+          -p ugv:=ugv1 -p uav:=uav1 -p world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
+        - ros2 run rbl_mission mission_viz_node --ros-args --params-file ./config/warehouse_map.yaml
+          -p use_sim_time:=true -p frame:=$CONTROL_FRAME -r __node:=mission_viz_2
+          -r /ugv_uav_mission/state:=/ugv_uav_mission_2/state
+          -p ugv:=ugv2 -p uav:=uav2
+  - foxglove:
+      layout: tiled
+      panes:
+        - ros2 run foxglove_bridge foxglove_bridge --ros-args -p port:=8765 -p use_sim_time:=true
+  - rviz:
+      layout: tiled
+      panes:
+        - if [ -n "$WEB_VIZ" ]; then echo "WEB_VIZ set, no rviz2 -- open http://localhost:8080";
+          else rviz2 -d ./ugv_uav_2pairs.rviz --ros-args -p use_sim_time:=true; fi
+        # (./ugv_uav_2pairs_debug.rviz: everything -- TF frames, rbl cells / centroids, raw clouds)

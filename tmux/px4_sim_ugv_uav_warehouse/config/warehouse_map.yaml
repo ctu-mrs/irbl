@@ -62,6 +62,13 @@
       ugv_z_lo: 0.05           # [m] obstacles overlapping this height band block the UGV (rover + carried UAV)
       ugv_z_hi: 1.0
       sample_spacing: 0.5      # [m] spacing of the path points sent to rbl_controller
+      keep_right: true         # traffic rules: drive in the right lane of each aisle / cross-aisle (opposite
+                               # directions use different lanes: less head-on congestion). Lanes on ~/ugv_lanes
+      lane_offset: 0.85        # [m] right lane = this far from the obstacle on the right (>= ugv_clearance);
+                               # 3 m aisle: lanes at +-0.65 m from the centreline
+      lane_band: 2.2           # [m] lane costs fade out this far from obstacles (open space: no lanes)
+      lane_weight: 1.0         # cost per metre travelled, per metre off the lane line
+      wrong_way_weight: 2.0    # cost per metre travelled on the wrong (left) side
 
     mission:
       tolerance: 0.6           # [m] 3D arrival tolerance at stops (aisle position, pass ends, home)

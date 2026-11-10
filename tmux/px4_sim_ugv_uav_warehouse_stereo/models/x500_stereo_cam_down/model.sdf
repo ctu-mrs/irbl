@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UAV of px4_sim_ugv_uav_warehouse_stereo: PX4's x500 plus
+
+  - stereo_link: forward stereo depth camera, exactly px4_sim_warehouse_inspection_stereo's
+    x500_stereo (OAK-D Lite-like: 73 deg x 58 deg, 0.2-19.1 m, 160x120 @ 10 Hz, 2 cm noise),
+    0.12 m ahead / 0.242 m above base_link (above the propeller disk, so no blade is in view).
+    Gazebo topic: /world/<world>/model/<name>/link/stereo_link/sensor/stereo_depth/depth_image/points
+    (frame_id "uav_stereo_link", x forward / y left / z up, not optical). rbl_controller's pcl_topic.
+
+  - down_cam_link: as in x500_lidar_3d_cam_down, for PX4's precision landing on the ArUco marker
+    of the UGV deck: 6 cm behind / 6 cm below base_link, pitched +90 deg (straight down), 640x480
+    @ 20 Hz, 80 deg horizontal FOV.
+    Gazebo topic: /world/<world>/model/<name>/link/down_cam_link/sensor/down_cam/{image,camera_info}
+
+  No rangefinder (the carried airframe 4043 has EKF2_RNG_CTRL 0 anyway).
+  The session links this folder into PX4's Tools/simulation/gz/models; the vehicle is started with
+  PX4_SIM_MODEL=gz_x500_stereo_cam_down -> gz model x500_stereo_cam_down_<instance>.
+-->
+<sdf version='1.9'>
+  <model name='x500_stereo_cam_down'>
+    <self_collide>false</self_collide>
+    <include merge='true'>
+      <uri>model://x500</uri>
+    </include>
+
+    <link name="stereo_link">
+      <pose relative_to="base_link">0.12 0 0.242 0 0 0</pose>
+      <inertial>
+        <mass>0.061</mass>
+        <inertia><ixx>4.6e-5</ixx><ixy>0</ixy><ixz>0</ixz><iyy>5.5e-6</iyy><iyz>0</iyz><izz>4.4e-5</izz></inertia>
+      </inertial>
+      <visual name="stereo_visual">
+        <geometry><box><size>0.0175 0.091 0.028</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="stereo_depth" type="depth_camera">
+        <gz_frame_id>uav_stereo_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>1.274</horizontal_fov>
+          <image>
+            <width>160</width>
+            <height>120</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.2</near>
+            <far>19.1</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>10</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+    <joint name="stereo_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>stereo_link</child>
+    </joint>
+
+    <link name="down_cam_link">
+      <pose relative_to="base_link">-0.06 0 -0.06 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia><ixx>1e-5</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-5</iyy><iyz>0</iyz><izz>1e-5</izz></inertia>
+      </inertial>
+      <visual name="down_cam_visual">
+        <geometry><box><size>0.02 0.03 0.03</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="down_cam" type="camera">
+        <gz_frame_id>down_cam_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>1.396</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>20.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>20</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+    <joint name="down_cam_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>down_cam_link</child>
+    </joint>
+  </model>
+</sdf>

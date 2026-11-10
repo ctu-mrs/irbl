@@ -1,0 +1,11 @@
+# Sensor extrinsics of a UGV (models/ugv<k>_carrier_light), relative to "<ugv>/fcu" (px4_bridge pins it
+# at env.sh UGV_HOME_Z = 0.6 m above the floor). publish_sensor_tf.sh publishes "<ugv>/fcu" ->
+# "<ugv>/<frame_id>". Keep in sync with the model (generate.py copies it from
+# ../px4_sim_2ugv_2uav_warehouse_stereo_larger/models/ugv1_carrier_stereo).
+sensors:
+  # forward depth camera on the rover's front face: model pose 0.215 m ahead / 0.24 m above base_link,
+  # base_link is 0.047 m above the floor (r1_rover wheels: z 0.0215, radius 0.0686) -> 0.287 m above
+  # the floor = 0.287 - 0.6 below the pinned fcu frame
+  - frame_id: stereo_link
+    translation: [0.215, 0.0, -0.313]
+    rotation: [0.0, 0.0, 0.0]

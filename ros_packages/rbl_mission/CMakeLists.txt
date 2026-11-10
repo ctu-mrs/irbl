@@ -48,7 +48,7 @@ target_link_libraries(coverage_plan_check tinyxml2::tinyxml2)
 # UGV + UAV deployment coordinator, see src/ugv_uav_mission_node.cpp
 add_executable(ugv_uav_mission_node src/ugv_uav_mission_node.cpp)
 target_include_directories(ugv_uav_mission_node PRIVATE include)
-ament_target_dependencies(ugv_uav_mission_node rclcpp rbl_msgs nav_msgs geometry_msgs std_msgs std_srvs)
+ament_target_dependencies(ugv_uav_mission_node rclcpp rbl_msgs nav_msgs geometry_msgs std_msgs std_srvs visualization_msgs)
 target_link_libraries(ugv_uav_mission_node tinyxml2::tinyxml2 "${cpp_typesupport_target}")
 
 # simplified rviz picture of the mission (vehicles + warehouse), see src/mission_viz_node.cpp

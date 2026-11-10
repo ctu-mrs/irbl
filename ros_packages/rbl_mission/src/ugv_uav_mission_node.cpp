@@ -50,6 +50,8 @@
 //          the world SDF's obstacles, global_planner.hpp) and handed whole to rbl_controller ~/goto_path:
 //          it follows that path without its local replanner, rbl's reactive avoidance on top. The
 //          UAV's legs from here (RENDEZVOUS) go as straight paths too. Published on ~/ugv_global_path.
+//          planner.keep_right (default true): traffic rules, the UGV drives in the right lane of each
+//          aisle / cross-aisle (global_planner.hpp). The lanes are published once on ~/ugv_lanes (rviz).
 //   local  the aisle grid (CoveragePlanner::groundRoute: along its aisle to a cross-aisle, through it,
 //          into the target aisle), one intermediate rbl_controller ~/goto at a time, rbl's local
 //          replanner routing in between. (With only the goal, its local view -- 180 deg forward lidar, 15 m
@@ -79,6 +81,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <rbl_msgs/msg/reference_stamped.hpp>
 #include <rbl_msgs/srv/goto_path.hpp>
 #include <rbl_msgs/srv/vec4.hpp>
@@ -194,7 +197,18 @@ public:
     gp.z_hi                = declare_parameter<double>("planner.ugv_z_hi", gp.z_hi);
     gp.snap_radius         = declare_parameter<double>("planner.snap_radius", gp.snap_radius);
     gp.sample_spacing      = declare_parameter<double>("planner.sample_spacing", gp.sample_spacing);
+    gp.keep_right          = declare_parameter<bool>("planner.keep_right", gp.keep_right);
+    gp.lane_offset         = declare_parameter<double>("planner.lane_offset", gp.lane_offset);
+    gp.lane_band           = declare_parameter<double>("planner.lane_band", gp.lane_band);
+    gp.lane_weight         = declare_parameter<double>("planner.lane_weight", gp.lane_weight);
+    gp.wrong_way_weight    = declare_parameter<double>("planner.wrong_way_weight", gp.wrong_way_weight);
+    if (gp.keep_right && !(gp.lane_offset >= gp.clearance && gp.lane_band > gp.lane_offset)) {
+      throw std::invalid_argument("planner: need ugv_clearance <= lane_offset < lane_band");
+    }
     gplanner_ = std::make_unique<rbl_mission::GlobalPlanner2D>(planner_->obstacles(), gp);
+    if (gp.keep_right) {
+      RCLCPP_INFO(get_logger(), "global planner: keep right, lane %.2f m from the obstacle on the right", gp.lane_offset);
+    }
     RCLCPP_INFO(get_logger(), "planner: %s", global_ ? "global (UGV legs planned once on the map, rbl_controller/goto_path)"
                                                      : "local (aisle-grid route, rbl_controller/goto + its local replanner)");
 
@@ -204,6 +218,8 @@ public:
     pub_attach_  = create_publisher<std_msgs::msg::Empty>(attach_topic, rclcpp::QoS(1));
     pub_uav_ref_ = create_publisher<rbl_msgs::msg::ReferenceStamped>("/" + uav_ + "/reference", rclcpp::QoS(1));
     pub_ugv_path_ = create_publisher<nav_msgs::msg::Path>("~/ugv_global_path", latched);
+    pub_lanes_    = create_publisher<visualization_msgs::msg::MarkerArray>("~/ugv_lanes", latched);
+    publishLanes();
 
     auto odom_cb = [this](std::optional<Vec3>& pos, std::optional<double>& speed, double& yaw) {
       return [this, &pos, &speed, &yaw](nav_msgs::msg::Odometry::ConstSharedPtr m) {
@@ -875,6 +891,34 @@ private:
     return m;
   }
 
+  // keep_right lanes for rviz: one arrow per ~1 m along each right lane, pointing the way of travel
+  void publishLanes()
+  {
+    const auto arrows = gplanner_->laneArrows(1.0);
+    if (arrows.empty()) return;
+    visualization_msgs::msg::MarkerArray ma;
+    visualization_msgs::msg::Marker m;
+    m.header.frame_id = "world";
+    m.header.stamp    = now();
+    m.ns              = "ugv_lanes";
+    m.id              = 0;
+    m.type            = visualization_msgs::msg::Marker::ARROW;
+    m.action          = visualization_msgs::msg::Marker::ADD;
+    m.scale.x = 0.06, m.scale.y = 0.18, m.scale.z = 0.2;  // shaft / head diameter, head length
+    m.color.r = 0.1f, m.color.g = 0.8f, m.color.b = 0.3f, m.color.a = 0.8f;
+    m.pose.orientation.w = 1.0;
+    for (const auto& a : arrows) {
+      geometry_msgs::msg::Point p0, p1;
+      p0.x = a.p.x - 0.3 * a.d.x, p0.y = a.p.y - 0.3 * a.d.y, p0.z = 0.03;
+      p1.x = a.p.x + 0.3 * a.d.x, p1.y = a.p.y + 0.3 * a.d.y, p1.z = 0.03;
+      m.points = {p0, p1};
+      ma.markers.push_back(m);
+      ++m.id;
+    }
+    pub_lanes_->publish(ma);
+    RCLCPP_INFO(get_logger(), "published %zu lane arrows on ~/ugv_lanes", arrows.size());
+  }
+
   void publishUgvPath()
   {
     std::vector<Vec3> p = gpath_;
@@ -973,6 +1017,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr         pub_detach_, pub_attach_;
   rclcpp::Publisher<rbl_msgs::msg::ReferenceStamped>::SharedPtr pub_uav_ref_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr          pub_ugv_path_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_lanes_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr   sub_ugv_odom_, sub_uav_odom_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr     sub_uav_state_;
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr sub_target_;

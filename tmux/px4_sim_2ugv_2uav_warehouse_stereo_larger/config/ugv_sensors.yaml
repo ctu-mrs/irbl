@@ -1,0 +1,9 @@
+# Sensor extrinsics of a UGV (models/ugv<k>_carrier_stereo), relative to "<ugv>/fcu" (pinned by
+# px4_bridge at env.sh UGV_HOME_Z = 0.6 m). publish_sensor_tf.sh publishes "<ugv>/fcu" ->
+# "<ugv>/<frame_id>" (the model's gz_frame_id). Keep in sync with models/ugv<k>_carrier_stereo/model.sdf.
+sensors:
+  # forward stereo depth camera at the cargo deck's front edge: 0.41 m ahead, 0.23 m above base_link
+  # (0.047 m above the floor) = 0.277 m above the floor = 0.277 - 0.6 below the pinned fcu frame
+  - frame_id: stereo_link
+    translation: [0.41, 0.0, -0.323]
+    rotation: [0.0, 0.0, 0.0]

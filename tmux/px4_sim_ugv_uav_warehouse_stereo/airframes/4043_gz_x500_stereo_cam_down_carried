@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+# @name Gazebo x500 stereo + down camera, carried by the UGV
+#
+# @type Quadrotor
+#
+# The UAV of px4_sim_ugv_uav_warehouse_stereo: x500 + forward stereo depth camera + downward camera
+# (gz model models/x500_stereo_cam_down; started with PX4_SYS_AUTOSTART=4043
+# PX4_SIM_MODEL=gz_x500_stereo_cam_down -> gz model x500_stereo_cam_down_<instance>). Same as
+# 4042_gz_x500_lidar_3d_cam_down_carried of px4_sim_ugv_uav_warehouse otherwise, i.e. plus the
+# settings it needs from boot (before EKF2 / the vision_target_estimator start):
+#
+#  - declination fixed to the field the gz world simulates. PX4 otherwise takes it from its own
+#    magnetic model at the world's coordinates (+3.41 deg); gz's magnetometer field there points
+#    -2.57 deg (measured: field (0.216, 0.0097, 0.429) G at a true heading of 90 deg NED) -> every
+#    heading was ~6 deg off (rotating every lidar / camera point with it: 0.5 m at 5 m). A runtime
+#    `param set` doesn't fix a vehicle that already aligned its heading standing still.
+#  - no rangefinder height aiding: it boots on the UGV deck, so the LW20 measures height above the
+#    deck at boot and above the floor in flight (seen: odometry 0.7 m off).
+#  - precision landing on the ArUco marker of the UGV deck WITHOUT the vision_target_estimator
+#    (VTE_EN 0, reboot required): mavlink_receiver then turns every TARGET_RELATIVE from
+#    aruco_landing_target.py directly into landing_target_pose (x/y/z_abs = vehicle local position
+#    + the measurement rotated by the attitude), which is all the navigator's precland uses.
+#    With VTE_EN 1 (beta) the estimator diverged in this sim within ~1 s of AUTO_PRECLAND while
+#    hovering still over the marker (its uav-velocity state jumped to 0.9 m/s down, covariances
+#    went negative, every marker measurement then failed its NIS gate) -> precland chased a
+#    target 5 m away and the UAV crashed (log 2026-11-06/12_29_36.ulg). The VTE_* values below
+#    are what was tried, kept for a later attempt with VTE_EN 1.
+
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500_stereo_cam_down}
+
+. ${R}etc/init.d-posix/airframes/4001_gz_x500
+
+param set-default EKF2_DECL_TYPE 0
+param set-default EKF2_MAG_DECL -2.57
+param set-default EKF2_RNG_CTRL 0
+
+param set-default VTE_EN 0
+param set-default VTE_POS_EN 1
+param set-default VTE_YAW_EN 0
+param set-default VTE_AID_MASK 6
+param set-default VTE_TASK_MASK 1

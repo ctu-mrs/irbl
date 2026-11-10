@@ -1,0 +1,95 @@
+# px4_sim_2ugv_2uav_warehouse_stereo: copy of ../px4_sim_ugv_uav_warehouse_stereo/config/ugv_rbl.yaml
+# (its own file: was encumbrance 0.6 for an 0.80 m cargo deck; the deck is now the 0.40 m rover size, 0.45 again).
+# rbl_controller of the UGV: the same algorithm, cell and sensing model as the UAV (3D), on the raw
+# 3D cloud of its forward stereo depth camera -- the same sensor as the UAV's (/ugv1/sensors/stereo/points). Only
+# the control input is planar (rbl_controller.planar_control): the 3D cell / centroid are computed as
+# for the UAV, but the reference keeps the UGV's z. It goes to px4_bridge -> PX4 differential rover
+# offboard position mode: PX4 uses x/y (pure pursuit -> unicycle motion); rbl's heading is followed through px4_bridge's ground_vehicle mode (spot turns). The UGV's odometry z is pinned at env.sh UGV_HOME_Z (0.6 m) -- see there.
+/**:
+  ros__parameters:
+
+    group_odoms:
+      enable: false
+      add_to_pcl: false
+      size: 0
+
+    odometry_topic: odometry
+
+    # Agents cut out of the depth cloud (points within `radius` of their odometry position), so
+    # the UAV flying in front of the UGV is not taken as an obstacle. Only a filter: the UAV is not
+    # a neighbor of rbl's partition (group_odoms stays off), the UGV's cell is unchanged.
+    filter_agents:
+      odom_topics: ["/uav1/odometry"]
+      radius: 0.7               # [m] x500 propeller tips ~0.45 m from its center + both vehicles'
+                                # estimation error (~2 deg heading, ~5 cm)
+      timeout: 1.0              # [s] older odometry is not used
+
+    rate:
+      timer_set_ref: 20.0
+      timer_diagnostics: 10.0
+
+    rbl_controller:
+      limited_fov: true         # like the UAV: rbl turns the UGV towards where it goes before moving there,
+                                # so the forward camera sees it first. px4_bridge (ground_vehicle) turns rbl's
+                                # heading-only references into PX4 rover spot turns
+      only_2d: false            # 3D cell: the radius-3 disk extruded over z_min..z_max (the vehicle's height band),
+                                # cut by CIRI's 3D polytope; planar_control still drops z from the reference
+      ciri: true
+      reflective_intensity_threshold: -1.0
+      lidar_tilt: 29.0 # [deg]  stereo camera: 58 deg vertical FOV, untilted -> +-29 deg
+      lidar_fov: 58.0 #[deg]
+      planar_control: true      # 3D cell as the UAV's, but no z in the control input (reference z = the UGV's)
+      ground_cut_at_z_min: true # the ground is cut at z_min (cell bottom): points below it never cut the cell
+      step_size: 0.08
+      boundary_threshold: 0.1
+      z_min: 0.15               # [m] above the floor: cell bottom = ground cut (ground_cut_at_z_min) / replanner band.
+                                # Lowest the 0.1 m voxels allow: a floor point (+-2 cm noise) lands in the
+                                # 0.05 voxel, and the cut is strict (z > z_min)
+      z_max: 0.8                # ... to the top of the vehicle: deck ~0.33 m + carried x500 (top ~0.7 m) + margin.
+                                # Obstacles above it (shelf boards the rover passes under) are ignored; the reference's z
+                                # inside it is ignored by the rover
+      z_ref: 0.0
+      d1: 1.0
+      d2: 1.0
+      d3: 1.0
+      d4: 1.0
+      d5: 1.0
+      d6: 1.0
+      d7: 1.0
+      radius: 4.0 # max planning horizon (as the UAV)
+      betaD: 0.1
+      beta_min: 0.05
+      dt: 0.1
+      encumbrance: 0.45         # [m] the carried x500's propellers (~0.45) cover the 0.40 x 0.40 m deck
+                                # (half-diagonal 0.28)
+      use_z_rule: false
+      cwvd_obs: 0.99
+      cwvd_rob: 0.5
+      use_map: true
+      use_garmin_alt: false
+      replanner: true
+      boundary_threshold_speed: 0.01
+      move_centroid_to_sensed_cell: false
+      octomap:
+        octomap_msg: false
+      pcl:
+        downsample: true
+        voxel_size: 0.1
+      add_estimates_as_voxels: true
+
+    replanner:
+      planar: true              # 2D A* on the ground: obstacles in rbl_controller z_min..z_max (above the
+                                # floor) projected onto the UGV's layer; overhangs above z_max are ignored
+      inflation_bonus: 0.0
+      replanner_freq: 5.0
+      replan_progress_threshold: 0.5
+      direction_consistency_weight: 100.0   # (UAV: 600) heading reversals are cheap for a rover
+      direction_decay_meters: 80.0
+      path_deviation_distance: 4.0
+      path_deviation_weight: 25.0
+      forward_lock_half_angle_deg: 180.0    # no lock: a differential rover turns in place (with the UAV's
+                                            # 100 deg it sat ~30 s before driving to a goal behind it)
+
+    static_map:
+      voxel_size: 0.1 # [m]
+      max_range: 15.0  # [m]

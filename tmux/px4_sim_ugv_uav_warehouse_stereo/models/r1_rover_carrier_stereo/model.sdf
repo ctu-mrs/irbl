@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UGV of px4_sim_ugv_uav_warehouse_stereo: PX4's r1_rover (differential drive, 0.4 x 0.4 m body, deck at
+  ~0.32 m above the floor) plus
+
+  - stereo_link: forward stereo depth camera, the same sensor as the UAV's (OAK-D Lite-like optics
+    as PX4's x500_depth: 73 deg x 58 deg, 0.2-19.1 m, downscaled to 160x120 @ 10 Hz, 2 cm noise),
+    untilted, on the front face 0.21 m ahead / 0.25 m above base_link (~0.30 m above the floor):
+    the floor shows up from ~0.55 m ahead (-29 deg). The carried UAV (behind and > 0.3 m above the
+    camera, > 70 deg elevation) stays out of its view.
+    Gazebo topic: /world/<world>/model/<name>/link/stereo_link/sensor/stereo_depth/depth_image/points
+    (frame_id "ugv_stereo_link", x forward / y left / z up, not optical: TF frames are global, the
+    UAV has its own "uav_stereo_link").
+    It is the UGV rbl_controller's pcl_topic.
+
+  - landing_marker: ArUco marker (DICT_4X4_50, id 0, 0.30 m: PX4's arucotag texture) on a 0.40 m
+    white plate, on top of the deck (the 0.275 m collision box top the UAV rests on, above the
+    visual meshes): the target of the UAV's PX4 precision landing (down camera + VTE).
+
+  - DetachableJoint: holds the UAV model (x500_stereo_cam_down_1 = PX4 instance 1) fixed on the deck as
+    soon as it is spawned (retries until it exists); publishing gz.msgs.Empty on /ugv1/uav_detach
+    releases it (the mission does that right before the UAV arms), /ugv1/uav_attach re-attaches.
+
+  The session links this folder into PX4's Tools/simulation/gz/models (px4-rc.gzsim only spawns
+  from there), so <uri>r1_rover</uri> below resolves to PX4's own r1_rover. Its wheel plugins use
+  model-relative topics, so the renamed model drives exactly like r1_rover.
+-->
+<sdf version='1.9'>
+  <model name='r1_rover_carrier_stereo'>
+    <include merge='true'>
+      <uri>model://r1_rover</uri>
+    </include>
+
+    <link name="stereo_link">
+      <pose relative_to="base_link">0.21 0 0.25 0 0 0</pose>
+      <inertial>
+        <mass>0.061</mass>
+        <inertia><ixx>4.6e-5</ixx><ixy>0</ixy><ixz>0</ixz><iyy>5.5e-6</iyy><iyz>0</iyz><izz>4.4e-5</izz></inertia>
+      </inertial>
+      <visual name="stereo_visual">
+        <geometry><box><size>0.0175 0.091 0.028</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <sensor name="stereo_depth" type="depth_camera">
+        <gz_frame_id>ugv_stereo_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>1.274</horizontal_fov>
+          <image>
+            <width>160</width>
+            <height>120</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.2</near>
+            <far>19.1</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>10</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+    <joint name="stereo_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>stereo_link</child>
+    </joint>
+
+    <link name="landing_marker">
+      <pose relative_to="base_link">0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia>
+      </inertial>
+      <visual name="marker_plate">
+        <pose>0 0 0.277 0 0 0</pose>
+        <geometry><box><size>0.40 0.40 0.004</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+      </visual>
+      <visual name="marker">
+        <pose>0 0 0.2795 0 0 0</pose>
+        <geometry><plane><normal>0 0 1</normal><size>0.30 0.30</size></plane></geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <pbr><metal><albedo_map>model://arucotag/arucotag.png</albedo_map></metal></pbr>
+        </material>
+      </visual>
+    </link>
+    <joint name="landing_marker_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>landing_marker</child>
+    </joint>
+
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>base_link</parent_link>
+      <child_model>x500_stereo_cam_down_1</child_model>
+      <child_link>base_link</child_link>
+      <detach_topic>/ugv1/uav_detach</detach_topic>
+      <attach_topic>/ugv1/uav_attach</attach_topic>
+      <suppress_child_warning>true</suppress_child_warning>
+    </plugin>
+  </model>
+</sdf>

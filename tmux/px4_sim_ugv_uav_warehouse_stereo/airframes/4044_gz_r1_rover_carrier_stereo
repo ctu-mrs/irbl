@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# @name Gazebo r1 rover carrier stereo
+#
+# @type Rover
+# @class Rover
+#
+# PX4's r1_rover (differential drive) with a UAV on its deck and a forward stereo depth camera
+# (models/r1_rover_carrier_stereo next to this folder), for px4_sim_ugv_uav_warehouse_stereo.
+# Same as 4041_gz_r1_rover_carrier; its own file because PX4 picks the airframe by PX4_SIM_MODEL. Same parameters
+# as 4009_gz_r1_rover; the session's config/ugv_px4.yaml tunes them at runtime.
+
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=r1_rover_carrier_stereo}
+
+. ${R}etc/init.d-posix/airframes/4009_gz_r1_rover
+
+# Declination fixed to the field the gz world simulates (-2.57 deg, PX4's magnetic model would use
+# +3.41 deg here -> ~6 deg heading error, measured), set at boot so the EKF aligns with it. See
+# 4043_gz_x500_stereo_cam_down_carried.
+param set-default EKF2_DECL_TYPE 0
+param set-default EKF2_MAG_DECL -2.57
