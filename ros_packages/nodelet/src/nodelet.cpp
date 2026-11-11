@@ -31,6 +31,14 @@
 
 // ROS 2
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/version.h>
+
+// Humble (rclcpp < 28) only accepts rmw_qos_profile_t for services; Jazzy+ prefers rclcpp::QoS
+#if RCLCPP_VERSION_MAJOR >= 28
+#define RBL_SERVICES_QOS rclcpp::ServicesQoS()
+#else
+#define RBL_SERVICES_QOS rmw_qos_profile_services_default
+#endif
 #include <std_srvs/srv/trigger.hpp>
 
 // TF2 (replaces mrs_lib::Transformer)
@@ -401,25 +409,25 @@ namespace rbl_controller
     srv_activate_control_ = node_->create_service<std_srvs::srv::Trigger>(
         "~/control_activation_in",
         std::bind(&WrapperRosRBL::cbSrvActivateControl, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::ServicesQoS(),
+        RBL_SERVICES_QOS,
         cbkgrp_ss_);
 
     srv_deactivate_control_ = node_->create_service<std_srvs::srv::Trigger>(
         "~/control_deactivation_in",
         std::bind(&WrapperRosRBL::cbSrvDeactivateControl, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::ServicesQoS(),
+        RBL_SERVICES_QOS,
         cbkgrp_ss_);
 
     srv_goto_position_ = node_->create_service<rbl_msgs::srv::Vec4>(
         "~/goto_out",
         std::bind(&WrapperRosRBL::cbSrvGotoPosition, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::ServicesQoS(),
+        RBL_SERVICES_QOS,
         cbkgrp_ss_);
 
     srv_set_betaD_ = node_->create_service<rbl_msgs::srv::Float64Srv>(
         "~/set_betaD",
         std::bind(&WrapperRosRBL::cbSrvSetBetaD, this, std::placeholders::_1, std::placeholders::_2),
-        rclcpp::ServicesQoS(),
+        RBL_SERVICES_QOS,
         cbkgrp_ss_);
 
     // | ----------------------- reference output ------------------ |
