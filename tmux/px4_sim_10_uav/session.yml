@@ -1,0 +1,88 @@
+---
+# PX4-Autopilot SITL simulation of the irbl stack: 10 UAVs in one empty gz world, no obstacles
+# (no map_generator, rbl_controller.pcl.enable = false -- each UAV only avoids the other nine).
+# Spawns are random (config/spawn.env, drawn by start.sh), goals are random (config/goals.env,
+# drawn by ./activation.sh). Everything is in the shared frame uav1/world_origin (= uav1's spawn).
+# See px4_sim_3_uav/session.yml for why the PX4 instances are launched the way they are.
+<% n = 10 %>
+root: ./
+name: px4_simulation_10uav
+socket_name: px4sim10
+attach: false
+startup_window: activation
+pre_window:
+  - export PX4_DIR=${PX4_DIR:-$HOME/git/PX4-Autopilot}
+  - export HEADLESS=${HEADLESS:-0}
+  - source ./config/spawn.env
+  - source /opt/ros/jazzy/setup.zsh
+  - source ../../../../install/setup.zsh
+  - export ATUIN_FILTER_MODE=session
+windows:
+  - micro_xrce_agent:
+      layout: tiled
+      panes:
+        - MicroXRCEAgent udp4 -p 8888
+  - px4_sitl:
+      layout: tiled
+      panes:
+        # instance 0 (uav1): builds if needed, starts the gz world, spawns at the origin
+        - cd $PX4_DIR && HEADLESS=$HEADLESS make px4_sitl gz_x500_lidar_down
+<% (1...n).each do |i| %>
+        - cd $PX4_DIR && until [ -x ./build/px4_sitl_default/bin/px4 ]; do sleep 1; done;
+          until gz topic -l 2>/dev/null | grep -q '^/world/.*/clock'; do sleep 1; done; sleep <%= i %>;
+          PX4_GZ_STANDALONE=1 GZ_IP=127.0.0.1 PX4_SIM_MODEL=gz_x500_lidar_down
+          PX4_GZ_MODEL_POSE="$UAV<%= i+1 %>_SPAWN_X,$UAV<%= i+1 %>_SPAWN_Y,$UAV<%= i+1 %>_SPAWN_Z,0,0,0"
+          ./build/px4_sitl_default/bin/px4 -i <%= i %>
+<% end %>
+  - px4_setup:
+      layout: tiled
+      panes:
+        # per instance: NAV_DLL_ACT fix (arming without GCS) + config/custom_config.yaml params
+        - for i in $(seq 0 <%= n-1 %>); do ./fix_arming_healthcheck.sh px4_sitl.$i &
+          ./set_px4_params.sh px4_sitl.$i & done; wait; echo "all PX4 instances configured"
+  - px4_bridge:
+      layout: tiled
+      panes:
+        - export UAV_NAME=uav1; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0
+<% (1...n).each do |i| %>
+        - export UAV_NAME=uav<%= i+1 %>; ros2 run rbl_px4_bridge px4_bridge_node --ros-args -r __ns:=/$UAV_NAME
+          -p uav_name:=$UAV_NAME -p control_frame:=uav1/world_origin
+          -p takeoff_altitude:=2.0 -p auto_arm:=true -p publish_rate:=20.0 -p px4_ns:=px4_<%= i %> -p target_system:=<%= i+1 %>
+          -p home_offset_x:=$UAV<%= i+1 %>_SPAWN_X -p home_offset_y:=$UAV<%= i+1 %>_SPAWN_Y -p home_offset_z:=$UAV<%= i+1 %>_SPAWN_Z
+<% end %>
+  - group_state_relay:
+      layout: tiled
+      panes:
+        - ros2 run rbl_px4_bridge group_state_relay_node --ros-args
+          -p uav_names:="[<%= (1..n).map { |i| "uav#{i}" }.join(', ') %>]" -p control_frame:=uav1/world_origin
+  - rbl_controller:
+      layout: tiled
+      panes:
+<% (1..n).each do |i| %>
+        - export UAV_NAME=uav<%= i %>; ros2 launch rbl_controller_node rbl_controller.launch.py
+          uav_name:=$UAV_NAME custom_config:=./config/rbl_controller.yaml
+          control_frame:=uav1/world_origin
+<% end %>
+  - foxglove:
+      layout: tiled
+      panes:
+        - ros2 run foxglove_bridge foxglove_bridge --ros-args -p port:=8765
+          -p use_sim_time:=${USE_SIM_TIME:-false}
+  - rviz:
+      layout: tiled
+      panes:
+        - if [ -n "$WEB_VIZ" ]; then echo "WEB_VIZ set, no rviz2 -- open http://localhost:8080";
+          else rviz2 -d ./px4_sim.rviz; fi
+  - activation:
+      layout: tiled
+      panes:
+<% if @settings["infinite"] %>
+        # start_infinite.sh: waits for takeoff by itself, then loops goals forever with a stats dashboard
+        - ./infinite.py
+<% else %>
+        - echo "Wait until all 10 px4_bridge panes print 'Arming' and hover, then ./activation.sh
+          (./activation.sh --new for a fresh set of random goals)"; command cat ./config/spawn.env;
+          history -s ./activation.sh
+<% end %>

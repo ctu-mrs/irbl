@@ -1,0 +1,56 @@
+/**:
+  ros__parameters:
+
+    group_odoms:
+      enable: true
+      add_to_pcl: true
+      size: 9
+
+    odometry_topic: odometry
+
+    rate:
+      timer_set_ref: 20.0
+      timer_diagnostics: 10.0
+
+    rbl_controller:
+      limited_fov: true
+      only_2d: false
+      ciri: true
+      reflective_intensity_threshold: 0.99 # points >= this are other UAVs (group_odoms.add_to_pcl injects them at 1.0)
+      lidar_tilt: 20.0 # [deg]
+      lidar_fov: 59.0 #[deg]
+      step_size: 0.2
+      boundary_threshold: 0.2
+      z_min: 0.0
+      z_max: 4.0
+      z_ref: 1.0
+      d1: 1.0
+      d2: 1.0
+      d3: 1.0
+      d4: 1.0
+      d5: 1.0
+      d6: 1.0
+      d7: 1.0
+      radius: 5.0 # max planning horizon
+      betaD: 0.3
+      beta_min: 0.1
+      dt: 0.1
+      encumbrance: 0.5
+      use_z_rule: false
+      cwvd_obs: 0.5
+      cwvd_rob: 0.5
+      use_map: true
+      use_garmin_alt: false
+      replanner: false
+      boundary_threshold_speed: 0.01
+      move_centroid_to_sensed_cell: false
+      octomap:
+        octomap_msg: false
+      pcl:
+        enable: false # no obstacles: avoid only the other UAVs
+        downsample: true
+        voxel_size: 0.3
+      add_estimates_as_voxels: true
+
+    replanner:
+      inflation_bonus: 0.2
