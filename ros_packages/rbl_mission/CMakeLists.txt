@@ -63,6 +63,11 @@ install(TARGETS warehouse_inspection_node coverage_plan_check ugv_uav_mission_no
 
 # ArUco detector -> PX4 TARGET_RELATIVE (built-in precision landing), see the script header
 install(PROGRAMS scripts/aruco_landing_target.py DESTINATION lib/${PROJECT_NAME})
+# QR shelf codes from the UAV lateral cameras -> logs + per-shelf reports, see the script header
+install(PROGRAMS scripts/shelf_scanner.py DESTINATION lib/${PROJECT_NAME})
+# greenhouse fruit counting (colour segmentation), the greenhouse version of shelf_scanner.py
+install(PROGRAMS scripts/crop_scanner.py scripts/crop_detector.py DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY models/wechat_qrcode DESTINATION share/${PROJECT_NAME}/models)
 
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

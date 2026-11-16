@@ -1,0 +1,237 @@
+"""Vehicles and session files of px4_sim_ugv_uav_greenhouse_dynamic (called by generate.py, after the world).
+
+The same vehicles and stack as the warehouse sessions: the generator of ../px4_sim_5ugv_5uav_warehouse_light is
+imported and pointed at this folder (as ../px4_sim_ugv_uav_warehouse_dynamic/generate.py does), 1 pair:
+  - UGV ugv1_carrier_gh, UAV uav1_x500_crop: the pair-1 models of ../px4_sim_2ugv_2uav_warehouse_stereo_larger, i.e.
+    forward depth cameras for rbl_controller, down camera + the ArUco deck board (5 markers) for PX4 precision landing
+  - rbl / PX4 / sensor configs of the warehouse sessions (config/: links), except uav_rbl.yaml's z_max (2.6 m: under
+    the crop wires at 3.0 m, so rbl never routes over a crop row; the warehouse has 10 m)
+  - session.yml / env.sh / rviz from the light generator (mission, deploy, aruco, ... windows), with this world, its
+    map (config/greenhouse_map.yaml), the wind / forklift plugin and the `scan` window (crop_scanner.py)
+  + the UAV's lateral colour + depth cameras for crop_scanner.py.
+"""
+import importlib.util
+import math
+import os
+import shutil
+
+import yaml
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LIGHT_DIR = os.path.join(HERE, '..', 'px4_sim_5ugv_5uav_warehouse_light')
+STEREO_CFG = '../../px4_sim_ugv_uav_warehouse_stereo/config'
+LIGHT_CFG = '../../px4_sim_5ugv_5uav_warehouse_light/config'
+UAV_Z_MAX = 2.6
+
+spec = importlib.util.spec_from_file_location('light_gen', os.path.join(LIGHT_DIR, 'generate.py'))
+L = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(L)
+L.HERE = HERE
+L.SESSION = 'ugv_uav_greenhouse_dynamic'
+L.SOCKET = 'ghdynugvuav'
+L.DOMAIN = 47
+L.WORLD = 'greenhouse_dynamic'
+L.m_ugv = lambda k: f'ugv{k}_carrier_gh'
+L.m_uav = lambda k: f'uav{k}_x500_crop'
+# deploy lines in the history: the tomato, pepper, cucumber rows of segment 2 (left side of aisles 4, 5, 6)
+L.DEPLOY = [[(4, 2, 'left'), (5, 2, 'left'), (6, 2, 'left')]]
+# one pair: the stereo sessions' cameras unchanged (the light generator shrinks them for 5 pairs)
+L.LIGHT = dict(L.LIGHT, depth_w=160, depth_h=120, down_rate=20)
+N = 1
+
+
+def link(dst, target):
+    p = os.path.join(HERE, dst)
+    if os.path.lexists(p):
+        if os.path.isdir(p) and not os.path.islink(p):
+            shutil.rmtree(p)
+        else:
+            os.remove(p)
+    os.symlink(target, p)
+
+
+def add_crop_cameras(latcam):
+    c = latcam
+    path = os.path.join(HERE, f'models/{L.m_uav(1)}/model.sdf')
+    s = open(path).read()
+    links = ''
+    for side, sgn in (('left', 1), ('right', -1)):
+        cam = lambda typ, name, fmt: f'''
+      <sensor name="{name}" type="{typ}">
+        <gz_frame_id>uav1/{side}_cam_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>{c['hfov']}</horizontal_fov>
+          <image><width>{c['width']}</width><height>{c['height']}</height><format>{fmt}</format></image>
+          <clip><near>0.1</near><far>8.0</far></clip>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>{c['rate']}</update_rate>
+        <visualize>false</visualize>
+      </sensor>'''
+        links += f'''
+    <!-- crop_scanner.py: {side} colour + depth camera (two sensors: gz's rgbd_camera renders colour unlit), portrait -->
+    <link name="{side}_cam_link">
+      <pose relative_to="base_link">0 {sgn * c['y']} {c['z']} {c['roll']:.4f} 0 {sgn * math.pi / 2:.4f}</pose>
+      <inertial><mass>0.02</mass><inertia><ixx>1e-5</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-5</iyy><iyz>0</iyz><izz>1e-5</izz></inertia></inertial>
+      <visual name="{side}_cam_visual"><geometry><box><size>0.02 0.04 0.03</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>{cam('camera', f'{side}_cam', 'R8G8B8')}{cam('depth_camera', f'{side}_depth', 'R_FLOAT32')}
+    </link>
+    <joint name="{side}_cam_joint" type="fixed"><parent>base_link</parent><child>{side}_cam_link</child></joint>
+'''
+    s = s.replace('  </model>', links + '  </model>', 1)
+    s = s.replace('depth camera 96x72. -->', 'depth camera 96x72, + left / right colour + depth cameras '
+                  '(px4_sim_ugv_uav_greenhouse_dynamic/session_gen.py). -->')
+    open(path, 'w').write(s)
+
+
+def configs(latcam):
+    for f in ('uav_px4.yaml', 'ugv_px4.yaml'):
+        link(f'config/{f}', f'{STEREO_CFG}/{f}')
+    for f in ('ugv_rbl.yaml', 'ugv_sensors.yaml'):
+        link(f'config/{f}', f'{LIGHT_CFG}/{f}')
+    src = open(os.path.join(HERE, 'config', STEREO_CFG, 'uav_rbl.yaml')).read()
+    import re
+    s, n = re.subn(r'      z_max: 10\.0[^\n]*', f'      z_max: {UAV_Z_MAX}  # [m] greenhouse (session_gen.py): under the 3.0 m crop '
+                   'wires, rbl never routes over a crop row (the warehouse config has 10.0)', src, count=1)
+    assert n == 1
+    p = os.path.join(HERE, 'config', 'uav_rbl.yaml')
+    if os.path.lexists(p):
+        os.remove(p)
+    open(p, 'w').write('# GENERATED by session_gen.py: ../px4_sim_ugv_uav_warehouse_stereo/config/uav_rbl.yaml (the warehouse '
+                       f'sessions\' UAV rbl config) with z_max {UAV_Z_MAX}\n' + s)
+    us = open(os.path.join(LIGHT_DIR, 'config', 'uav_sensors.yaml')).read().rstrip()
+    c = latcam
+    p = os.path.join(HERE, 'config', 'uav_sensors.yaml')
+    if os.path.lexists(p):
+        os.remove(p)
+    open(p, 'w').write('# GENERATED by session_gen.py: ../px4_sim_5ugv_5uav_warehouse_light/config/uav_sensors.yaml + the '
+                       'crop cameras\n' + us + f'''
+
+  # crop cameras (crop_scanner.py): x along the view, left = +y of the body, rolled 90 deg (portrait)
+  - frame_id: left_cam_link
+    translation: [0.0, {c['y']}, {c['z']}]
+    rotation: [{c['roll']:.4f}, 0.0, 1.5708]
+  - frame_id: right_cam_link
+    translation: [0.0, {-c['y']}, {c['z']}]
+    rotation: [{c['roll']:.4f}, 0.0, -1.5708]
+''')
+
+
+def scripts():
+    for f in ('publish_sensor_tf.sh', 'history_prefill.sh', 'tmux.conf'):
+        link(f, f'../px4_sim_5ugv_5uav_warehouse_light/{f}')
+    for f in ('airframes', 'ugv_uav_debug.rviz', 'ugv_uav.rviz'):   # the previous (lidar) vehicles' files
+        p = os.path.join(HERE, f)
+        if os.path.lexists(p):
+            os.remove(p)
+    d = open(os.path.join(LIGHT_DIR, 'deploy.sh')).read()
+    assert 'MAP=./config/warehouse_map.yaml' in d
+    d = d.replace('MAP=./config/warehouse_map.yaml', 'MAP=./config/greenhouse_map.yaml')
+    d = d.replace('config/warehouse_map.yaml (map.aisle_y', 'config/greenhouse_map.yaml (map.aisle_y')
+    for name, text in (('deploy.sh', d), ('start.sh', open(os.path.join(LIGHT_DIR, 'start.sh')).read())):
+        p = os.path.join(HERE, name)
+        if os.path.lexists(p):
+            os.remove(p)
+        open(p, 'w').write(text)
+        os.chmod(p, 0o755)
+    k = open(os.path.join(LIGHT_DIR, 'kill.sh')).read()
+    k = k.replace('publish_sensor_tf.sh rviz2 foxglove_bridge; do', 'publish_sensor_tf.sh crop_scanner.py rviz2 foxglove_bridge; do')
+    p = os.path.join(HERE, 'kill.sh')
+    os.remove(p) if os.path.lexists(p) else None
+    open(p, 'w').write(k)
+    os.chmod(p, 0o755)
+    sp = open(os.path.join(LIGHT_DIR, 'set_px4_params.sh')).read()
+    sp = sp.replace('SOCKET=whugvuav5p', f'SOCKET={L.SOCKET}').replace('SESSION=ugv_uav_warehouse_5pairs', f'SESSION={L.SESSION}')
+    p = os.path.join(HERE, 'set_px4_params.sh')
+    os.remove(p) if os.path.lexists(p) else None
+    open(p, 'w').write(sp)
+    os.chmod(p, 0o755)
+
+
+def patch_env():
+    p = os.path.join(HERE, 'env.sh')
+    s = open(p).read().replace('px4_sim_5ugv_5uav_warehouse_light', 'px4_sim_ugv_uav_greenhouse_dynamic')
+    s = s.replace('${UGV_UAV_5PAIRS_DOMAIN_ID:-47}', '${UGV_UAV_GH_DYN_DOMAIN_ID:-47}')
+    s += '''
+# wind (PlantSway, config/gz_server.config) from ros_packages/gz_greenhouse_dynamics
+export IRBL_INSTALL=${IRBL_INSTALL:-$(readlink -f "$(dirname "$(readlink -f ./env.sh)")/../../../../install")}
+case ":$GZ_SIM_SYSTEM_PLUGIN_PATH:" in *":$IRBL_INSTALL/gz_greenhouse_dynamics/lib:"*) ;;
+  *) export GZ_SIM_SYSTEM_PLUGIN_PATH=$IRBL_INSTALL/gz_greenhouse_dynamics/lib${GZ_SIM_SYSTEM_PLUGIN_PATH:+:$GZ_SIM_SYSTEM_PLUGIN_PATH} ;;
+esac
+# crop_scanner.py output: $SCAN_DATA_DIR/$SCAN_RUN_ID/ = scans/<start time>/ in this session folder (start.sh sources
+# this file once before tmuxinator, so every pane gets the same SCAN_RUN_ID)
+export SCAN_DATA_DIR=${SCAN_DATA_DIR:-$(dirname "$(readlink -f ./env.sh)")/scans}
+export SCAN_RUN_ID=${SCAN_RUN_ID:-$(date +%Y%m%d_%H%M%S)}
+'''
+    open(p, 'w').write(s)
+
+
+def patch_session():
+    p = os.path.join(HERE, 'session.yml')
+    s = open(p).read()
+
+    def rep(a, b, count=1):
+        nonlocal s
+        assert a in s, a[:70]
+        s = s.replace(a, b, count)
+
+    rep('# GENERATED by generate.py (1 pairs) -- edit generate.py, not this file.',
+        '# GENERATED by generate.py / session_gen.py of px4_sim_ugv_uav_greenhouse_dynamic -- edit those, not this file.\n'
+        '# The warehouse sessions\' UGV + UAV pair (depth cameras, rbl configs, ArUco deck board landing) in the dynamic\n'
+        '# greenhouse (wind-blown crops, walking operators), counting the fruits of the rows it covers (`scan` window).')
+    s = s.replace('./config/warehouse_map.yaml', './config/greenhouse_map.yaml')
+    rep('''  - for m in ./models/*/; do ln -sfn "$(readlink -f $m)" "$PX4_DIR/Tools/simulation/gz/models/$(basename $m)" 2>/dev/null; done''',
+        '''  - for m in ./models/*/; do ln -sfn "$(readlink -f $m)" "$PX4_DIR/Tools/simulation/gz/models/$(basename $m)" 2>/dev/null; done
+  # the crops' meshes and the operators' skin (model://greenhouse_crops_dynamic, model://greenhouse_operator)
+  - for m in ./worlds/models/*/; do ln -sfn "$(readlink -f $m)" "$PX4_DIR/Tools/simulation/gz/models/$(basename $m)" 2>/dev/null; done''')
+    gz = f'/world/$PX4_GZ_WORLD/model/{L.gz_uav(1)}/link'
+    pane = L.sh_list([
+        f'ros2 run rbl_mission crop_scanner.py --ros-args -r __ns:=/{L.uav(1)} -r __node:=crop_scanner',
+        f'-p use_sim_time:=true -p uav:={L.uav(1)} -p truth:=$(readlink -f ./worlds/crop_truth.json)',
+        f'-p data_dir:=$SCAN_DATA_DIR/$SCAN_RUN_ID -p state_topic:=/{L.uav(1)}/warehouse_inspection/state',
+        f'-p left_gz_topic:={gz}/left_cam_link/sensor/left_cam -p left_gz_depth_topic:={gz}/left_cam_link/sensor/left_depth',
+        f'-p right_gz_topic:={gz}/right_cam_link/sensor/right_cam -p right_gz_depth_topic:={gz}/right_cam_link/sensor/right_depth'])
+    rep('  - viz:\n', '  - scan:\n      layout: tiled\n      panes:\n'
+        '        # the UAV\'s crop cameras -> fruit counts of the row segment it covers -> scans/<start time>/ + report\n'
+        + pane + '\n  - viz:\n')
+    yaml.safe_load(s)
+    open(p, 'w').write(s)
+
+
+def patch_rviz():
+    p = os.path.join(HERE, 'ugv_uav_pairs.rviz')
+    r = yaml.safe_load(open(p))
+    disp = r['Visualization Manager']['Displays']
+    disp.append({'Class': 'rviz_default_plugins/Image', 'Enabled': True, 'Max Value': 1, 'Median window': 5,
+                 'Min Value': 0, 'Name': '[1] crop scan (lateral camera)', 'Normalize Range': True,
+                 'Topic': {'Depth': 2, 'Durability Policy': 'Volatile', 'History Policy': 'Keep Last',
+                           'Reliability Policy': 'Best Effort', 'Value': '/uav1/crop_scanner/debug_image'}, 'Value': True})
+    disp.append({'Class': 'rviz_default_plugins/MarkerArray', 'Enabled': True, 'Name': '[1] fruits counted',
+                 'Namespaces': {}, 'Topic': {'Depth': 5, 'Durability Policy': 'Transient Local', 'History Policy': 'Keep Last',
+                                             'Reliability Policy': 'Reliable', 'Value': '/uav1/crop_scanner/codes'},
+                 'Value': True})
+    open(p, 'w').write(yaml.safe_dump(r, sort_keys=False, width=200))
+
+
+def make_session_files(latcam):
+    mdir = os.path.join(HERE, 'models')
+    if os.path.islink(mdir):
+        os.remove(mdir)
+    for old in ('r1_rover_carrier', 'x500_lidar_3d_cam_down'):   # the previous (lidar) vehicles
+        p = os.path.join(mdir, old)
+        if os.path.islink(p):
+            os.remove(p)
+        elif os.path.isdir(p):
+            shutil.rmtree(p)
+    L.make_models(N)
+    add_crop_cameras(latcam)
+    configs(latcam)
+    scripts()
+    L.make_env(N)
+    patch_env()
+    L.make_session(N)
+    patch_session()
+    L.make_rviz(N)
+    patch_rviz()
+    print(f'session: {L.m_ugv(1)} + {L.m_uav(1)} (warehouse vehicles, rbl configs, ArUco board landing) + crop cameras, '
+          'session.yml / env.sh / rviz from the light generator')

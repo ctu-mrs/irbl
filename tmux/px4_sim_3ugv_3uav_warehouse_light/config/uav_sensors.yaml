@@ -1,0 +1,11 @@
+# Sensor extrinsics of a UAV (models/uav<k>_x500_light), relative to "<uav>/fcu" (= x500 base_link).
+# publish_sensor_tf.sh publishes "<uav>/fcu" -> "<uav>/<frame_id>" (the model's gz_frame_id).
+sensors:
+  # forward depth camera (x forward / y left / z up, not optical)
+  - frame_id: stereo_link
+    translation: [0.12, 0.0, 0.242]
+    rotation: [0.0, 0.0, 0.0]
+  # down camera (precision landing): gz camera frame, x along the view = down
+  - frame_id: down_cam_link
+    translation: [-0.06, 0.0, -0.06]
+    rotation: [0.0, 1.5708, 0.0]

@@ -99,6 +99,10 @@ public:
 
     tol_           = declare_parameter<double>("mission.tolerance", 0.6);
     tol_pass_      = declare_parameter<double>("mission.tolerance_pass", 1.0);
+    // > 0: a COVERAGE goal also needs |dz| below this to count as reached. With only the 3D tolerances a pass
+    // flown slightly low (e.g. 0.3-0.4 m under its level: the climb to it stops counting at tolerance_pass)
+    // stays low for the whole pass, since each goal along it is "reached" before the height converges.
+    tol_z_         = declare_parameter<double>("mission.tolerance_z", 0.0);
     timeout_base_  = declare_parameter<double>("mission.timeout_base", 30.0);
     timeout_per_m_ = declare_parameter<double>("mission.timeout_per_meter", 4.0);
     min_alt_       = declare_parameter<double>("mission.min_altitude", 1.5);
@@ -278,7 +282,8 @@ private:
     const double el = (now() - goal_start_).seconds();
 
     bool advance = false;
-    if (d < g.tol) {
+    const bool z_ok = tol_z_ <= 0.0 || g.task != State::COVERAGE || std::abs(pos_->z - g.p.z) < tol_z_;
+    if (d < g.tol && z_ok) {
       advance = true;
       if (g.task == State::COVERAGE) {
         ++reached_;
@@ -429,7 +434,7 @@ private:
   }
 
   std::unique_ptr<rbl_mission::CoveragePlanner> planner_;
-  double                                        tol_, tol_pass_, timeout_base_, timeout_per_m_, min_alt_;
+  double                                        tol_, tol_pass_, tol_z_, timeout_base_, timeout_per_m_, min_alt_;
   bool                                          return_start_;
 
   // state

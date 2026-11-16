@@ -30,8 +30,20 @@ PAIRS = 5
 # UGV spawn of each pair: free cross-aisle intersections at x = 0 (a building column stands at
 # (0.8, -8.4) and (0.8, 4.2), so pair 5 starts 0.7 m to the -x side of it)
 SPAWNS = [(0.0, 0.0), (0.0, -4.2), (0.0, 8.4), (0.0, -12.6), (-0.7, 4.2)]
-# first mission of each pair, put in the `mission` window's shell history (row, column, side)
-DEPLOY = [(4, 3, 'left'), (3, 2, 'right'), (6, 3, 'right'), (1, 2, 'left'), (5, 2, 'left')]
+# predefined shelves of each pair (row, column, side), put in the operator pane's shell history
+# (mission window, focused on attach): the first one of each pair is also in the all-pairs line.
+# Spawn rows: pair 1 row 4, pair 2 row 3, pair 3 row 6, pair 4 row 1, pair 5 row 5 (all at x ~ 0).
+# The pairs trade places, so with every pair deployed at once (deploy window, synchronize-panes)
+# they cross each other in the x = 0 / +-16.5 cross-aisles in opposite directions. Each round puts
+# the 5 pairs in 5 different rows:
+#   round 1 (exchange): 1 <-> 2 swap rows 4 / 3, 3 -> 4 -> 5 -> 3 rotate rows 6 -> 1 -> 5 -> 6
+#   round 2 (shuffle):  every pair to yet another row, across the whole warehouse
+#   round 3 (home):     back to its own row, other column / side than round 1
+DEPLOY = [[(3, 2, 'left'), (6, 3, 'right'), (4, 2, 'right')],
+          [(4, 3, 'right'), (1, 2, 'right'), (3, 3, 'left')],
+          [(1, 3, 'left'), (5, 3, 'left'), (6, 3, 'left')],
+          [(5, 2, 'right'), (3, 3, 'right'), (1, 2, 'right')],
+          [(6, 2, 'left'), (4, 2, 'left'), (5, 3, 'right')]]
 # rviz colours of each pair's paths
 COLORS = ['0; 200; 255', '255; 200; 0', '80; 220; 80', '255; 80; 200', '180; 120; 255']
 
@@ -290,7 +302,7 @@ name: {SESSION}
 socket_name: {SOCKET}
 attach: false
 tmux_options: -f ./tmux.conf
-startup_window: mission
+startup_window: deploy
 pre_window:
   - . ./env.sh
   - if [ "$PIN_CPUS" = 1 ]; then taskset -cp $OTHER_CPUS $$ >/dev/null; fi
@@ -314,17 +326,30 @@ windows:''')
             '-p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)',
             f'-p ugv:={ugv(k)} -p uav:={uav(k)} -p detach_topic:=/{ugv(k)}/uav_detach',
             f'-p attach_topic:=/{ugv(k)}/uav_attach -p planner.mode:=$PLANNER']))
-    cmds = [f'./deploy.sh pair {k} row {r} column {c} {s}' for k, (r, c, s) in zip(P, DEPLOY)]
-    all_cmd = ' ; '.join(cmds)
-    hist = ['./deploy.sh abort'] + cmds[::-1] + [all_cmd]   # last = first on arrow-up
-    zsh = '; '.join(f"print -s '{h}'" for h in hist)
-    bash = '; '.join(f"history -s '{h}'" for h in hist)
+    # operator pane: deploy lines in its history, newest first on arrow-up:
+    # all pairs at once, each pair's first shelf, the other shelves, abort
+    dep = lambda k, r, c, s: f'./deploy.sh pair {k} {r} {c} {s}'   # short form: pair k row r column c side
+    firsts = [dep(k, *DEPLOY[k - 1][0]) for k in P]
+    others = [dep(k, *rcs) for k in P for rcs in DEPLOY[k - 1][1:]]
+    hist = ['./deploy.sh abort'] + others[::-1] + firsts[::-1] + [' ; '.join(firsts)]
     panes.append(sh_list([
-        f'echo "Wait for \'Arming\' in the px4_bridge window (all {n} UGVs) and ~30 s more, then arrow-up:',
-        f'all {n} pairs at once, or one ./deploy.sh pair <k> ... line each   (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)";',
-        f'if [ -n "$ZSH_VERSION" ]; then {zsh};',
-        f'else {bash}; fi']))
+        f'clear; echo "Wait for \'Arming\' in the px4_bridge window (all {n} UGVs) and ~30 s more, then arrow-up:',
+        f'all {n} pairs at once, or one ./deploy.sh pair <k> <row> <column> <left|right> line each',
+        '(./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)";',
+        '. ./history_prefill.sh ' + ' '.join(f"'{h}'" for h in hist)]))
     S.append('  - mission:\n      layout: tiled\n      panes:\n' + '\n'.join(panes))
+
+    # --- deploy (startup window): one pane per pair, only that pair's lines in its history, the same
+    # number in every pane: with synchronize-panes (C-a s) the same keys deploy every pair at once:
+    # arrow-up + Enter = each pair's first shelf, 2x arrow-up = the second, 3x = the third, 4x = abort
+    panes = []
+    for k in P:
+        hist = [f'./deploy.sh pair {k} abort'] + [dep(k, *rcs) for rcs in DEPLOY[k - 1][::-1]]
+        panes.append(sh_list([
+            f'clear; echo "pair {k}: wait for \'Arming\' in the px4_bridge window and ~30 s more, then arrow-up + Enter',
+            '(C-a s: synchronize-panes, every pair at once)";',
+            '. ./history_prefill.sh ' + ' '.join(f"'{h}'" for h in hist)]))
+    S.append('  - deploy:\n      layout: tiled\n      panes:\n' + '\n'.join(panes))
 
     # --- states: one pane per pair, mission phase + UAV task
     panes = []

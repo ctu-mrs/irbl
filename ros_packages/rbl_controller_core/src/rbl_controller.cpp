@@ -1710,7 +1710,14 @@ void RBLController::determineNextRef(rbl_msgs::msg::Reference&                p_
     double diff                = std::fmod(heading_to_centroid - rpy[2] + M_PI, 2 * M_PI) - M_PI;
     double difference          = (diff < -M_PI) ? diff + 2 * M_PI : diff;
 
-    if (std::abs(difference) < M_PI / 2) {  //+-90 deg
+    // Move only towards a centroid in front (+-90 deg of the heading: the depth camera looks forward) --
+    // judged in the horizontal plane, so it is meaningless for a centroid (almost) straight above / below:
+    // its x/y direction is then position noise and a pure climb / descent (coverage level change, "leave
+    // the aisle" down to the exit height) was held at the current position whenever that noise pointed
+    // backwards (UAV stuck 1.4 m above its goal). Below kMinMoveDist horizontally: always move.
+    constexpr double kMinMoveDist    = 0.3;
+    const bool       mostly_vertical = std::hypot(c1_full[0] - agent_pos[0], c1_full[1] - agent_pos[1]) < kMinMoveDist;
+    if (mostly_vertical || std::abs(difference) < M_PI / 2) {  //+-90 deg
       p_ref.position.x = c1[0];
       p_ref.position.y = c1[1];
       p_ref.position.z = c1[2];

@@ -13,7 +13,7 @@
 #
 #   ./start.sh      then, once all four px4_bridge panes printed 'Arming' / 'px4_bridge started':
 #   ./deploy.sh pair 1 row 5 column 2 left
-#   ./deploy.sh pair 2 row 3 column 3 right        (both prepared in the `mission` window history)
+#   ./deploy.sh pair 2 row 3 column 3 right        (both prepared in the operator pane's history)
 #   ./deploy.sh abort                               both pairs hold   (./deploy.sh pair 2 abort: one)
 #   ./kill.sh
 #
@@ -28,7 +28,7 @@ name: ugv_uav_warehouse_2pairs
 socket_name: whugvuav2p
 attach: false
 tmux_options: -f ./tmux.conf
-startup_window: mission
+startup_window: deploy
 pre_window:
   - . ./env.sh
   # PX4 spawns only from its own Tools/simulation/gz/{worlds,models}: link this folder's in
@@ -65,11 +65,17 @@ windows:
         # each UAV's task inside INSPECT
         - ros2 topic echo /uav1/warehouse_inspection/state std_msgs/msg/String --qos-durability transient_local --field data
         - ros2 topic echo /uav2/warehouse_inspection/state std_msgs/msg/String --qos-durability transient_local --field data
-        # operator pane
-        - echo "Wait for 'Arming' in the px4_bridge window (both UGVs) and ~30 s more, then
-          ./deploy.sh pair <1|2> row <r> column <c> <left|right>   (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)";
-          if [ -n "$ZSH_VERSION" ]; then print -s './deploy.sh abort'; print -s './deploy.sh pair 1 row 5 column 2 left'; print -s './deploy.sh pair 2 row 3 column 3 right';
-          else history -s './deploy.sh abort'; history -s './deploy.sh pair 1 row 5 column 2 left'; history -s './deploy.sh pair 2 row 3 column 3 right'; fi
+        # operator pane: deploy lines in its history (history_prefill.sh: also into atuin),
+        # newest first on arrow-up: both pairs at once, each pair alone, other shelves, abort
+        - "clear; echo \"Wait for 'Arming' in the px4_bridge window (both UGVs) and ~30 s more, then arrow-up: ./deploy.sh pair <1|2> <row> <column> <left|right>   (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)\"; . ./history_prefill.sh './deploy.sh abort' './deploy.sh pair 2 3 2 left' './deploy.sh pair 2 3 3 left' './deploy.sh pair 1 4 3 right' './deploy.sh pair 1 4 3 left' './deploy.sh pair 2 3 3 right' './deploy.sh pair 1 5 2 left' './deploy.sh pair 1 5 2 left ; ./deploy.sh pair 2 3 3 right'"
+  # one pane per pair, only that pair's lines in its history, the same number in every pane: with
+  # synchronize-panes (C-a s) the same keys deploy both pairs at once: arrow-up + Enter = each pair's
+  # first shelf, 2x arrow-up = the second, 3x = the third, 4x = abort
+  - deploy:
+      layout: tiled
+      panes:
+        - "clear; echo \"pair 1: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, both pairs at once)\"; . ./history_prefill.sh './deploy.sh pair 1 abort' './deploy.sh pair 1 4 3 right' './deploy.sh pair 1 4 3 left' './deploy.sh pair 1 5 2 left'"
+        - "clear; echo \"pair 2: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, both pairs at once)\"; . ./history_prefill.sh './deploy.sh pair 2 abort' './deploy.sh pair 2 3 2 left' './deploy.sh pair 2 3 3 left' './deploy.sh pair 2 3 3 right'"
   - micro_xrce_agent:
       layout: tiled
       panes:

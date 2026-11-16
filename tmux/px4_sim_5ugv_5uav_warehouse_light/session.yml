@@ -15,7 +15,7 @@ name: ugv_uav_warehouse_5pairs
 socket_name: whugvuav5p
 attach: false
 tmux_options: -f ./tmux.conf
-startup_window: mission
+startup_window: deploy
 pre_window:
   - . ./env.sh
   - if [ "$PIN_CPUS" = 1 ]; then taskset -cp $OTHER_CPUS $$ >/dev/null; fi
@@ -65,7 +65,15 @@ windows:
           -p map.world_sdf:=$(readlink -f ./worlds/$PX4_GZ_WORLD.sdf)
           -p ugv:=ugv5 -p uav:=uav5 -p detach_topic:=/ugv5/uav_detach
           -p attach_topic:=/ugv5/uav_attach -p planner.mode:=$PLANNER
-        - "echo \"Wait for 'Arming' in the px4_bridge window (all 5 UGVs) and ~30 s more, then arrow-up: all 5 pairs at once, or one ./deploy.sh pair <k> ... line each   (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)\"; if [ -n \"$ZSH_VERSION\" ]; then print -s './deploy.sh abort'; print -s './deploy.sh pair 5 row 5 column 2 left'; print -s './deploy.sh pair 4 row 1 column 2 left'; print -s './deploy.sh pair 3 row 6 column 3 right'; print -s './deploy.sh pair 2 row 3 column 2 right'; print -s './deploy.sh pair 1 row 4 column 3 left'; print -s './deploy.sh pair 1 row 4 column 3 left ; ./deploy.sh pair 2 row 3 column 2 right ; ./deploy.sh pair 3 row 6 column 3 right ; ./deploy.sh pair 4 row 1 column 2 left ; ./deploy.sh pair 5 row 5 column 2 left'; else history -s './deploy.sh abort'; history -s './deploy.sh pair 5 row 5 column 2 left'; history -s './deploy.sh pair 4 row 1 column 2 left'; history -s './deploy.sh pair 3 row 6 column 3 right'; history -s './deploy.sh pair 2 row 3 column 2 right'; history -s './deploy.sh pair 1 row 4 column 3 left'; history -s './deploy.sh pair 1 row 4 column 3 left ; ./deploy.sh pair 2 row 3 column 2 right ; ./deploy.sh pair 3 row 6 column 3 right ; ./deploy.sh pair 4 row 1 column 2 left ; ./deploy.sh pair 5 row 5 column 2 left'; fi"
+        - "clear; echo \"Wait for 'Arming' in the px4_bridge window (all 5 UGVs) and ~30 s more, then arrow-up: all 5 pairs at once, or one ./deploy.sh pair <k> <row> <column> <left|right> line each (./deploy.sh map, ./deploy.sh -h, ./deploy.sh abort)\"; . ./history_prefill.sh './deploy.sh abort' './deploy.sh pair 5 5 3 right' './deploy.sh pair 5 4 2 left' './deploy.sh pair 4 1 2 right' './deploy.sh pair 4 3 3 right' './deploy.sh pair 3 6 3 left' './deploy.sh pair 3 5 3 left' './deploy.sh pair 2 3 3 left' './deploy.sh pair 2 1 2 right' './deploy.sh pair 1 4 2 right' './deploy.sh pair 1 6 3 right' './deploy.sh pair 5 6 2 left' './deploy.sh pair 4 5 2 right' './deploy.sh pair 3 1 3 left' './deploy.sh pair 2 4 3 right' './deploy.sh pair 1 3 2 left' './deploy.sh pair 1 3 2 left ; ./deploy.sh pair 2 4 3 right ; ./deploy.sh pair 3 1 3 left ; ./deploy.sh pair 4 5 2 right ; ./deploy.sh pair 5 6 2 left'"
+  - deploy:
+      layout: tiled
+      panes:
+        - "clear; echo \"pair 1: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, every pair at once)\"; . ./history_prefill.sh './deploy.sh pair 1 abort' './deploy.sh pair 1 4 2 right' './deploy.sh pair 1 6 3 right' './deploy.sh pair 1 3 2 left'"
+        - "clear; echo \"pair 2: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, every pair at once)\"; . ./history_prefill.sh './deploy.sh pair 2 abort' './deploy.sh pair 2 3 3 left' './deploy.sh pair 2 1 2 right' './deploy.sh pair 2 4 3 right'"
+        - "clear; echo \"pair 3: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, every pair at once)\"; . ./history_prefill.sh './deploy.sh pair 3 abort' './deploy.sh pair 3 6 3 left' './deploy.sh pair 3 5 3 left' './deploy.sh pair 3 1 3 left'"
+        - "clear; echo \"pair 4: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, every pair at once)\"; . ./history_prefill.sh './deploy.sh pair 4 abort' './deploy.sh pair 4 1 2 right' './deploy.sh pair 4 3 3 right' './deploy.sh pair 4 5 2 right'"
+        - "clear; echo \"pair 5: wait for 'Arming' in the px4_bridge window and ~30 s more, then arrow-up + Enter (C-a s: synchronize-panes, every pair at once)\"; . ./history_prefill.sh './deploy.sh pair 5 abort' './deploy.sh pair 5 5 3 right' './deploy.sh pair 5 4 2 left' './deploy.sh pair 5 6 2 left'"
   - states:
       layout: tiled
       panes:

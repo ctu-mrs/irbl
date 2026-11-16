@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>gz_greenhouse_dynamics</name>
+  <version>0.1.0</version>
+  <description>gz-sim system plugins for the dynamic greenhouse simulation (wind-blown crop foliage, models moved along paths).</description>
+  <maintainer email="manuel.boldrer@gmail.com">Manuel Boldrer</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

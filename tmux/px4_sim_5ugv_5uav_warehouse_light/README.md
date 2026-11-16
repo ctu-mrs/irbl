@@ -7,23 +7,31 @@ don't coordinate with each other.
 
 ```bash
 ./start.sh            # headless gz (HEADLESS=0 ./start.sh for the gz GUI), rviz (WEB_VIZ=1: foxglove instead)
-# wait for 'Arming' in the px4_bridge window, then in the `mission` window press arrow-up:
-#   the newest history line deploys all 5 pairs; the older lines deploy one pair each
-./deploy.sh pair 3 row 6 column 3 right
+# you land in the `deploy` window: one pane per pair, only its own lines in the history.
+# Wait for 'Arming' in the px4_bridge window, then C-a s (synchronize-panes) and arrow-up + Enter: every
+# pair goes to its first shelf at once (2x arrow-up: second shelf, 3x: third, 4x: abort that pair).
+# The operator pane in the `mission` window has all lines in one history (newest: all pairs in one line).
+./deploy.sh pair 3 6 3 right      # = ./deploy.sh pair 3 row 6 column 3 right
 ./deploy.sh abort     # every pair (./deploy.sh pair 2 abort: just one)
 ./kill.sh             # kills the whole process tree of every pane
 ```
 
-| pair | UGV (PX4 inst.) | UAV (PX4 inst.) | spawn | ArUco ids | deploy in history |
+| pair | UGV (PX4 inst.) | UAV (PX4 inst.) | spawn | ArUco ids | shelves in its `deploy` pane (arrow-up 1x, 2x, 3x) |
 |---|---|---|---|---|---|
-| 1 | ugv1 (0) | uav1 (1) | (0, 0) | 0–4 | row 4 column 3 left |
-| 2 | ugv2 (2) | uav2 (3) | (0, −4.2) | 5–9 | row 3 column 2 right |
-| 3 | ugv3 (4) | uav3 (5) | (0, 8.4) | 10–14 | row 6 column 3 right |
-| 4 | ugv4 (6) | uav4 (7) | (0, −12.6) | 15–19 | row 1 column 2 left |
-| 5 | ugv5 (8) | uav5 (9) | (−0.7, 4.2) | 20–24 | row 5 column 2 left |
+| 1 | ugv1 (0) | uav1 (1) | (0, 0) | 0–4 | 3 2 left, 6 3 right, 4 2 right |
+| 2 | ugv2 (2) | uav2 (3) | (0, −4.2) | 5–9 | 4 3 right, 1 2 right, 3 3 left |
+| 3 | ugv3 (4) | uav3 (5) | (0, 8.4) | 10–14 | 1 3 left, 5 3 left, 6 3 left |
+| 4 | ugv4 (6) | uav4 (7) | (0, −12.6) | 15–19 | 5 2 right, 3 3 right, 1 2 right |
+| 5 | ugv5 (8) | uav5 (9) | (−0.7, 4.2) | 20–24 | 6 2 left, 4 2 left, 5 3 right |
+
+The pairs trade places (round 1: pairs 1 and 2 swap rows, 3 → 4 → 5 → 3 rotate; round 2: every pair
+to yet another row; round 3: back to its own row), each round with the 5 pairs in 5 different rows: deployed
+at once, they cross each other in the cross-aisles in opposite directions.
 
 Pair 5 starts 0.7 m to the −x side of its cross-aisle, because a building column stands at (0.8, 4.2).
-The ROS domain is 51, the tmux socket is `whugvuav5p`, and only one warehouse session can run at a time.
+The history goes in through `history_prefill.sh`, which also writes it into atuin's session history:
+with atuin, arrow-up shows only atuin's history, which `history -s` never reaches (atuin keeps those
+lines, so they also show up in its global search). The ROS domain is 51, the tmux socket is `whugvuav5p`, and only one warehouse session can run at a time.
 
 ## Generated files
 
