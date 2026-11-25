@@ -50,9 +50,10 @@ export HOST_UID=$(id -u)
 mkdir -p "$HOST_TMUX/$TMUX_DIR/scans"   # bind-mounted in the sim container (scan reports), else root-owned
 mkdir -p -m 700 /tmp/tmux-$HOST_UID   # else docker creates it, owned by root
 
+SHARED_DATA_FOLDER=shared_data
 COLCON_BUILDER_PATH=./../colcon_workspace_builder
 WORKSPACE_CACHE=${COLCON_BUILDER_PATH}/cache/etc/docker/colcon_workspace
-COMPOSE=(docker compose -p "$SESSION_NAME" "${PROFILES[@]}")
+COMPOSE=(docker compose -p "$SESSION_NAME" --env-file ./stack.env --env-file "./scenarios/$SCENARIO.env" "${PROFILES[@]}")
 
 if ! docker image inspect "$IMAGE" > /dev/null 2>&1; then
   echo "$0: image '$IMAGE' not found, build it with smart-deployment/docker/lazydocker/base_image/build.sh"
@@ -87,7 +88,15 @@ if $COPY_WORKSPACE; then
   docker volume rm -f ${SESSION_NAME}_colcon_workspace > /dev/null
 fi
 
+echo "$0: removing old shared_data volume"
+docker volume rm -f ${SESSION_NAME}_${SHARED_DATA_FOLDER} > /dev/null
+
+# start the "init" container that primes the docker volumes
 "${COMPOSE[@]}" up -d init
+
+# copy the shared data into the "shared_data" volume
+echo "$0: copying shared data"
+tar -czh ./${SHARED_DATA_FOLDER} | "${COMPOSE[@]}" cp - init:/etc/docker
 
 if $COPY_WORKSPACE; then
   echo "$0: copying colcon workspace"

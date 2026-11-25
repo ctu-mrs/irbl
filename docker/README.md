@@ -41,6 +41,7 @@ the uXRCE-DDS ports, the ROS domain and the tmux socket. `tmux.sh` refuses to st
 |-----------------------------|-----------------------------------------------------------------------------|
 | `colcon_workspace_builder/` | builds `src/` (`irbl/ros_packages` links to `../../ros_packages`; `px4_msgs` / `px4_ros_com` are fetched by `build.sh` with the messages of the image's PX4) in `smart-deployment:latest`; the result lands in `cache/`, and `up.sh` copies it in |
 | `sim/compose.yaml`          | the services (below)                                                        |
+| `sim/shared_data/`          | scripts the containers run (`sim.sh`: the `sim` container, `record.sh`: rosbag); `up.sh` copies the folder into the `shared_data` volume (`/etc/docker/shared_data`) |
 | `sim/stack.env`             | settings of every scenario: project name, image, `GPU`, `HEADLESS`, `WEB_VIZ`, `FORWARD_ENV` |
 | `sim/scenarios/<s>.env`     | the scenario: its `../tmux` folder, ROS domain                              |
 | `sim/up.sh`, `sim/down.sh`  | start / stop the containers (`up.sh <s> -r` also records a rosbag, `-n` keeps the workspace volume) |
@@ -73,8 +74,8 @@ A code change therefore takes `build.sh` + `./tmux.sh <scenario>`. A change in `
 |-----------|-------------------------------------------------------------------------------------------|
 | `sim`     | idle; every pane of the scenario's session is a shell in it (PX4, Gazebo, bridges, controllers, rviz2 on the host display, ...) |
 | `viz`     | Lichtblick on <http://localhost:8080>, only with `WEB_VIZ=1`                              |
-| `rosbag`  | `ros2 bag record -a` to `~/docker/irbl_sim/bag_files`, only with `-r`                     |
-| `init`    | primes the `colcon_workspace` volume                                                      |
+| `rosbag`  | `shared_data/record.sh` (`ros2 bag record -a`, exclusions in the script) to `~/docker/irbl_sim/bag_files`, only with `-r`                     |
+| `init`    | primes the `shared_data` and `colcon_workspace` volumes                                   |
 
 Outside the session: `docker compose -p irbl_sim ...` in `sim/`. From the host,
 `ROS_DOMAIN_ID=<scenario's> ros2 topic list` also shows the topics, since the network is shared.

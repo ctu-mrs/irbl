@@ -2,12 +2,19 @@
 """ArUco landing-target detector for PX4's built-in precision landing.
 
 Detects one ArUco marker -- or a board of several (board_* parameters) -- in a downward camera
-image, estimates the position of the marker / board origin relative to the vehicle and sends it to PX4 as MAVLink TARGET_RELATIVE (development dialect, id 511). With
-VTE_EN=0, PX4's mavlink_receiver turns each one directly into landing_target_pose (absolute target
-position in the local frame), which drives the navigator's precision landing (AUTO_PRECLAND, e.g.
-px4_bridge ~/precland); with VTE_EN=1 it goes to the vision_target_estimator instead
-(fiducial_marker_pos_report). No PX4 change is needed: the px4_sitl_default build already has the
-development dialect.
+image, estimates the position of the marker / board origin relative to the vehicle and sends it to PX4
+over MAVLink. PX4's mavlink_receiver turns it into landing_target_pose (absolute target position in the
+local frame), which drives the navigator's precision landing (AUTO_PRECLAND, e.g. px4_bridge ~/precland).
+
+Which message (mavlink_message):
+  landing_target   (default) common LANDING_TARGET (id 149), MAV_FRAME_LOCAL_NED, position_valid=1.
+                   Understood by every PX4 (upstream v1.17 as in the docker image, and the fork): its
+                   handler publishes landing_target_pose with x/y/z as the absolute position -- the
+                   same result as the fork's TARGET_RELATIVE LOCAL_NED with VTE_EN=0.
+  target_relative  development TARGET_RELATIVE (id 511): needs a PX4 that handles it (the fork; with
+                   VTE_EN=1 it feeds the vision_target_estimator instead of precland).
+LANDING_TARGET needs the absolute position, i.e. odometry_topic: without an odometry sample close to
+the image stamp, the measurement always goes out as TARGET_RELATIVE BODY_FRD (fork only, see below).
 
 Board: board_ids, board_sizes [m] and board_centers (flat x, y list [m], x right / y up of the
 printed board, origin = the landing point) describe the markers; one solvePnP over the corners of
@@ -21,7 +28,7 @@ models/make_deck_boards.py). Without board_ids: the single marker marker_id / ma
                      one of active_states (default PICKUP, RENDEZVOUS, LAND)
   pub  ~/target     geometry_msgs/PointStamped  marker position in <body_frame> (FLU), for rviz
   pub  ~/debug_image sensor_msgs/Image  annotated camera view (own markers green, others red), for rviz
-  UDP  TARGET_RELATIVE -> mavlink_host:mavlink_port (PX4 SITL instance i: onboard link 14580+i)
+  UDP  LANDING_TARGET / TARGET_RELATIVE -> mavlink_host:mavlink_port (PX4 SITL instance i: onboard link 14580+i)
 
 Without odometry_topic, the measurement goes out in TARGET_OBS_FRAME_BODY_FRD with q_sensor left
 zero: PX4 rotates it into NED with its attitude and adds its position *at reception*, not at image
@@ -33,13 +40,14 @@ attitude and offset by the position the UAV had when the image was taken, giving
 absolute position in PX4's local frame. The marker is static while the UGV is parked, so the
 median over the last filter_window seconds is sent (TARGET_OBS_FRAME_LOCAL_NED, which PX4 hands
 to landing_target_pose unchanged). If no odometry sample is close enough to the image stamp it
-falls back to the BODY_FRD message. The camera is assumed to look straight down with the
+falls back to the TARGET_RELATIVE BODY_FRD message. The camera is assumed to look straight down with the
 image top towards the vehicle's front (x500_lidar_3d_cam_down): optical (x right, y down,
 z forward) -> FRD: x = -y_opt, y = x_opt, z = z_opt, plus camera_offset_frd.
 
-pymavlink's bundled development dialect predates TARGET_RELATIVE, so the MAVLink 2 frame is
-packed here (field order / CRC_EXTRA from the message definition, checked against PX4's
-development.xml with pymavlink's mavparse: wire length 71, crc_extra 28).
+pymavlink's bundled development dialect predates TARGET_RELATIVE, so the MAVLink 2 frames are
+packed here (field order / CRC_EXTRA from the message definitions: TARGET_RELATIVE checked against
+PX4's development.xml with pymavlink's mavparse: wire length 71, crc_extra 28; LANDING_TARGET against
+pymavlink's common dialect: crc_extra 200).
 """
 
 import bisect
@@ -57,6 +65,9 @@ from sensor_msgs.msg import CameraInfo, Image
 
 TARGET_RELATIVE_ID = 511
 TARGET_RELATIVE_CRC_EXTRA = 28
+LANDING_TARGET_ID = 149
+LANDING_TARGET_CRC_EXTRA = 200
+MAV_FRAME_LOCAL_NED = 1
 TARGET_OBS_FRAME_LOCAL_NED = 0
 TARGET_OBS_FRAME_BODY_FRD = 1
 LANDING_TARGET_TYPE_VISION_FIDUCIAL = 2
@@ -79,6 +90,32 @@ def quat_to_rot(q):
     ])
 
 
+def mavlink2_frame(seq, sysid, compid, msgid, crc_extra, payload):
+    payload = payload.rstrip(b'\x00') or b'\x00'  # MAVLink 2 trailing-zero truncation
+    # len, incompat_flags, compat_flags, seq, sysid, compid, msgid (24 bit)
+    header = struct.pack('<BBBBBB', len(payload), 0, 0, seq & 0xFF, sysid, compid) + msgid.to_bytes(3, 'little')
+    crc = x25crc(header + payload)
+    crc = x25crc(bytes([crc_extra]), crc)
+    return b'\xfd' + header + payload + struct.pack('<H', crc)
+
+
+def pack_landing_target(seq, sysid, compid, timestamp_us, target_id, pos_ned):
+    # wire order: time_usec, angle_x angle_y distance size_x size_y, target_num frame,
+    # then the extensions in definition order: x y z q[4] type position_valid
+    payload = struct.pack(
+        '<Q5f2B3f4f2B',
+        timestamp_us,
+        0.0, 0.0, float(np.linalg.norm(pos_ned)), 0.0, 0.0,  # angles / size unused with position_valid
+        target_id & 0xFF,
+        MAV_FRAME_LOCAL_NED,
+        *pos_ned,
+        1.0, 0.0, 0.0, 0.0,
+        LANDING_TARGET_TYPE_VISION_FIDUCIAL,
+        1,                          # position_valid: x y z are the absolute target position (LOCAL_NED)
+    )
+    return mavlink2_frame(seq, sysid, compid, LANDING_TARGET_ID, LANDING_TARGET_CRC_EXTRA, payload)
+
+
 def pack_target_relative(seq, sysid, compid, timestamp_us, target_id, pos_frd, pos_std,
                          frame=TARGET_OBS_FRAME_BODY_FRD):
     # wire order: uint64, then floats (x y z pos_std[3] yaw_std q_target[4] q_sensor[4]), then uint8s
@@ -94,13 +131,7 @@ def pack_target_relative(seq, sysid, compid, timestamp_us, target_id, pos_frd, p
         frame,
         LANDING_TARGET_TYPE_VISION_FIDUCIAL,
     )
-    payload = payload.rstrip(b'\x00') or b'\x00'  # MAVLink 2 trailing-zero truncation
-    # len, incompat_flags, compat_flags, seq, sysid, compid, msgid (24 bit)
-    header = struct.pack('<BBBBBB', len(payload), 0, 0, seq & 0xFF, sysid, compid) + \
-        TARGET_RELATIVE_ID.to_bytes(3, 'little')
-    crc = x25crc(header + payload)
-    crc = x25crc(bytes([TARGET_RELATIVE_CRC_EXTRA]), crc)
-    return b'\xfd' + header + payload + struct.pack('<H', crc)
+    return mavlink2_frame(seq, sysid, compid, TARGET_RELATIVE_ID, TARGET_RELATIVE_CRC_EXTRA, payload)
 
 
 class ArucoLandingTarget(Node):
@@ -130,6 +161,10 @@ class ArucoLandingTarget(Node):
         port = self.declare_parameter('mavlink_port', 14581).value
         self.sysid = self.declare_parameter('mavlink_sysid', 2).value     # = the vehicle's MAV_SYS_ID
         self.compid = self.declare_parameter('mavlink_compid', 191).value  # MAV_COMP_ID_ONBOARD_COMPUTER
+        # landing_target (any PX4) | target_relative (PX4 with TARGET_RELATIVE support), see the docstring
+        self.msg_type = self.declare_parameter('mavlink_message', 'landing_target').value
+        if self.msg_type not in ('landing_target', 'target_relative'):
+            raise ValueError(f"mavlink_message must be 'landing_target' or 'target_relative', not {self.msg_type!r}")
         self.std_min = self.declare_parameter('pos_std_min', 0.02).value   # [m]
         self.std_per_m = self.declare_parameter('pos_std_per_meter', 0.02).value
         # PX4 vehicle_odometry (NED) for latency/attitude compensation; '' = send BODY_FRD as before
@@ -183,7 +218,7 @@ class ArucoLandingTarget(Node):
                                    f'{self.filter_window:.2f} s median filter -> LOCAL_NED')
         self.create_timer(5.0, self.cb_status)
         self.get_logger().info(
-            f'ArUco {dict_name} ids {sorted(self.board)} -> TARGET_RELATIVE to '
+            f'ArUco {dict_name} ids {sorted(self.board)} -> {self.msg_type.upper()} to '
             f'{host}:{port} (sysid {self.sysid})')
 
     def set_camera(self, on: bool):
@@ -332,8 +367,12 @@ class ArucoLandingTarget(Node):
             p_send = np.median(np.array([s[1] for s in self.samples]), axis=0)
             n = len(self.samples)
             std_f = max(self.std_min, std / np.sqrt(n))
-            pkt = pack_target_relative(self.seq, self.sysid, self.compid, stamp_us, self.target_id,
-                                       p_send.tolist(), [std_f, std_f, 2.0 * std_f], TARGET_OBS_FRAME_LOCAL_NED)
+            if self.msg_type == 'landing_target':
+                pkt = pack_landing_target(self.seq, self.sysid, self.compid, stamp_us, self.target_id,
+                                          p_send.tolist())
+            else:
+                pkt = pack_target_relative(self.seq, self.sysid, self.compid, stamp_us, self.target_id,
+                                           p_send.tolist(), [std_f, std_f, 2.0 * std_f], TARGET_OBS_FRAME_LOCAL_NED)
             self.n_comp += 1
         else:
             p_send = None
