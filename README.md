@@ -81,28 +81,16 @@ resets it back to PX4's own factory default (`0`) automatically.
 
 ### Docker
 
-`docker/Dockerfile` builds PX4 SITL, Gazebo Harmonic and this workspace on ROS 2 Jazzy:
+`docker/` runs the tmux sessions in containers of the `smart-deployment:latest` image (ROS 2 Jazzy, Gazebo
+Harmonic, PX4 SITL), with a tmux control room on the PC. Same layout as `smart-deployment/docker/lazydocker`:
 
 ```bash
-docker build -f docker/Dockerfile -t irbl:jazzy .   # from the irbl repo root
+docker/colcon_workspace_builder/build.sh   # builds ros_packages against the image
+docker/tmux.sh 1_uav                       # scenarios: docker/sim/scenarios/*.env
+docker/kill.sh
 ```
 
-**In the browser** (any host OS, no X11 needed): the sim runs headless and
-[Lichtblick](https://github.com/lichtblick-suite/lichtblick) shows the ROS topics, streamed by the
-`foxglove` window of each tmux session.
-
-```bash
-docker compose -f docker/compose.yml up -d
-docker compose -f docker/compose.yml exec sim zsh   # inside: cd px4_sim_1_uav_3dlidar && ./start.sh
-```
-
-Then open <http://localhost:8080/?ds=foxglove-websocket&ds.url=ws://localhost:8765> (the default
-layout, `docker/lichtblick_layout.json`, shows the 3D view and uav1's position). Stop everything with
-`docker compose -f docker/compose.yml down`. In this mode the 3D lidar renders on the CPU, so the sim
-may run slower than real time on weak machines.
-
-**Native windows** (Linux, Gazebo GUI + rviz2 over X11): `docker/run.sh`, then start a session the same
-way. Install the NVIDIA Container Toolkit to render on an NVIDIA GPU.
+See [docker/README.md](docker/README.md) (browser viewer with `WEB_VIZ=1`, GPU options, rosbags).
 
 ### Generated worlds (3D lidar sim)
 

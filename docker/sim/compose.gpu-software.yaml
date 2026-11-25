@@ -1,0 +1,14 @@
+# GPU=software in ./stack.env: render on the CPU (Mesa llvmpipe, OpenGL 4.5) instead of the host GPU.
+# No /dev/dri in the containers: the only EGL device is then the Mesa software one (Gazebo headless
+# picks EGL device #0 directly, which fails on an NVIDIA /dev/dri/card0). Works on any PC: for hosts whose
+# GPU the containers can't use (NVIDIA proprietary driver: RViz says "OpenGL 3.3 is not supported", Gazebo
+# "eglInitialize failed for device ... /dev/dri/card0"). Slower: use GPU=nvidia there for full speed.
+
+x-software: &software
+  environment:
+    LIBGL_ALWAYS_SOFTWARE: "1"          # GLX and EGL: Mesa llvmpipe
+    __GLX_VENDOR_LIBRARY_NAME: mesa     # don't pick the host X server's (NVIDIA) GLX vendor
+
+services:
+  sim: *software
+  rosbag: *software

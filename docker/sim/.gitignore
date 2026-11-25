@@ -1,0 +1,5 @@
+# written by up.sh (GPU=dri): the host's Mesa-capable /dev/dri nodes
+compose.gpu-dri.yaml
+.session.yml
+.tmux.conf
+.tmux_session

@@ -1,0 +1,4 @@
+cache
+# fetched by build.sh (messages of the base image's PX4)
+src/px4_msgs
+src/px4_ros_com

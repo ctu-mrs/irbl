@@ -1,0 +1,119 @@
+# irbl SITL: the docker version of ../../tmux/px4_sim_*/start.sh. Started by ./up.sh <scenario>
+# (or ../tmux.sh <scenario>), stopped by ./down.sh. Settings: ./stack.env + ./scenarios/<scenario>.env,
+# exported by up.sh and by every pane of the tmux session (so `docker compose ...` there just works).
+#
+# Every container runs the base image smart-deployment:latest (smart-deployment/docker/lazydocker/base_image)
+# as is. Its entrypoint sources ROS and /etc/docker/colcon_workspace (volume filled by up.sh from
+# ../colcon_workspace_builder, plus the live ../../tmux folder at src/irbl/tmux).
+#
+# The scenario's own tmux session (tmux/<TMUX_DIR>/session.yml) runs unchanged, with tmux on the host and every
+# pane a shell in the `sim` container: PX4 SITL, Gazebo, the bridges, the controllers, rviz2 (host display) ...
+#
+# Host networking + host IPC: ROS 2 (ROS_DOMAIN_ID), gz-transport and the PX4 <-> agent link work across the
+# containers and with the host; host IPC keeps the Fast DDS shared-memory transport working between containers.
+
+x-common: &common
+  image: ${IMAGE:-smart-deployment:latest}
+  network_mode: host
+  ipc: host
+  init: true
+  environment: &env
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    DISPLAY: ${DISPLAY:-}
+    QT_X11_NO_MITSHM: "1"
+    SHELL: /bin/zsh                              # tmuxinator panes: the sessions source setup.zsh
+    LAZYPX4_BIN: /root/.local/bin/lazypx4        # PX4_DIR comes from the image (/root/px4/PX4-Autopilot)
+    # the image's MAVProxy pip install put opencv-python 5 (no contrib: no WeChat QR decoder for
+    # shelf_scanner.py) and numpy 2 in /root/.local, ahead of the system python3-opencv 4.6 (contrib) and
+    # numpy 1.26. On PYTHONPATH (ROS prepends its own paths) the system packages come first; pymavlink & co.
+    # are still found in /root/.local
+    PYTHONPATH: /usr/lib/python3/dist-packages
+  volumes:
+    - colcon_workspace:/etc/docker/colcon_workspace
+    # GUIs (rviz2, Gazebo without HEADLESS) on the host display (up.sh runs xhost +SI:localuser:root)
+    - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  # GPU: added by compose.gpu-<GPU>.yaml (GPU in ./stack.env)
+
+volumes:
+
+  # Going to be filled with the workspace built by
+  #       ../colcon_workspace_builder/
+  # and the ../../tmux folder (at src/irbl/tmux)
+  colcon_workspace:
+
+services:
+
+  # this container primes the shared volume and allows the content to be placed in it
+  init:
+    image: ${IMAGE:-smart-deployment:latest}
+    volumes:
+      - colcon_workspace:/etc/docker/colcon_workspace
+
+  # the container the scenario runs in. Idle: the panes of the scenario's tmux session (on the host, started by
+  # ../tmux.sh) are shells in it (pane.sh: docker exec ... zsh), one tmux, no nested session.
+  # HOST_TMUX (the host's tmux/ folder) is linked to the copy in the workspace volume, so the host paths
+  # tmuxinator sends (cd <root>) work here too.
+  # WEB_VIZ: no host display, Gazebo's sensor rendering gets an Xvfb one (DISPLAY=:99 set by up.sh)
+  sim:
+    <<: *common
+    environment:
+      <<: *env
+      HEADLESS: ${HEADLESS:-}
+      WEB_VIZ: ${WEB_VIZ:-}
+      TMUX_DIR: ${TMUX_DIR:?scenario not set, use ./up.sh <scenario>}
+    working_dir: /etc/docker/colcon_workspace/src/irbl/tmux/${TMUX_DIR}
+    volumes:
+      - colcon_workspace:/etc/docker/colcon_workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # the host's tmux sockets: scripts of the sessions (set_px4_params.sh, fix_arming_healthcheck.sh, ...)
+      # run `tmux -L <socket> send-keys` into the PX4 panes, i.e. into the host tmux server
+      - /tmp/tmux-${HOST_UID:-1000}:/tmp/host-tmux
+      # scan reports (shelf_scanner.py / crop_scanner.py write to the session's scans/) land in the repo
+      - ${HOST_TMUX:-/tmp}/${TMUX_DIR}/scans:/etc/docker/colcon_workspace/src/irbl/tmux/${TMUX_DIR}/scans
+    command:
+      - bash
+      - -c
+      - |
+        if [ -n "${HOST_TMUX:-}" ]; then
+          mkdir -p "$$(dirname ${HOST_TMUX:-})"
+          ln -sfn /etc/docker/colcon_workspace/src/irbl/tmux "${HOST_TMUX:-}"
+        fi
+        # tmux (root) wants its own /tmp/tmux-0; the session's socket in it links to the host's
+        mkdir -p -m 700 /tmp/tmux-0
+        ln -sfn "/tmp/host-tmux/${TMUX_SOCKET:-}" "/tmp/tmux-0/${TMUX_SOCKET:-}"
+        touch /root/.zshrc   # no zsh-newuser-install prompt in the panes
+        [ -n "$$WEB_VIZ" ] && Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > /dev/null 2>&1 &
+        exec sleep infinity
+
+  # Lichtblick (open-source Foxglove Studio) on http://localhost:8080, only with WEB_VIZ=1 in ./stack.env.
+  # The foxglove window of every tmux session streams the ROS topics on ws://localhost:8765.
+  # Colors in lichtblick_layout.json's 3D view (topics under /uav1/rbl_controller/ unless noted):
+  # (black background; everything except the obstacles is magenta/white/lavender, none of which
+  # appear in the turbo colormap, so nothing can be mistaken for an obstacle)
+  #   turbo by height (blue 0 m -> green -> yellow -> red 6 m+):
+  #           cloud (obstacles the controller uses, mostly opaque) and
+  #           /uav1/sensors/lidar_3d/points (raw lidar, faint, same scale)
+  #   white   drone: /uav1/odometry arrow + position (translucent safety sphere)
+  #   magenta target (goal, solid) + path; replanner_waypoint (light pink, translucent)
+  #   lavender actively_sensed_A (cell the drone moves in, transparent) + centroid (solid)
+  #   off by default: seed_B, cell_a, inflated_map
+  # Lichtblick only applies this default layout when the browser has none saved yet; after editing
+  # it, reset the layout in the viewer (Layouts menu) or open it in a private window.
+  viz:
+    image: ghcr.io/lichtblick-suite/lichtblick:latest
+    profiles: [web]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./lichtblick_layout.json:/lichtblick/default-layout.json:ro
+
+  # `ros2 bag record -a`, only with:  ./up.sh <scenario> -r
+  # - the rosbags are going to be placed in ~/docker/${SESSION_NAME}/bag_files
+  rosbag:
+    <<: *common
+    profiles: [record]
+    volumes:
+      - colcon_workspace:/etc/docker/colcon_workspace
+      - ${HOME}/docker/${SESSION_NAME:-irbl_sim}/bag_files:/etc/docker/bag_files
+    working_dir: /etc/docker/bag_files
+    command: ros2 bag record -a
