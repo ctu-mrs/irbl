@@ -597,7 +597,25 @@ class ShelfScanner(Node):
         with open(os.path.join(out, 'report.html'), 'w') as f:
             f.write(self.html(summary, entries, grid, codes))
         self.append_run_files(summary, entries, out)
+        self.chown_to_host(out)
         return out, summary
+
+    def chown_to_host(self, out):
+        """In the sim container (root), give the run's files to the owner of the bind-mounted scans/ folder,
+        else root-owned files on the host: snap Firefox (AppArmor 'owner' rule) refuses to open them."""
+        if os.geteuid() != 0:
+            return
+        try:
+            st = os.stat(os.path.dirname(self.data_dir))
+            if st.st_uid == 0:
+                return
+            paths = [self.data_dir, out] + [os.path.join(out, f) for f in os.listdir(out)] + \
+                    [os.path.join(self.data_dir, f) for f in os.listdir(self.data_dir)
+                     if os.path.isfile(os.path.join(self.data_dir, f))]
+            for p in paths:
+                os.chown(p, st.st_uid, st.st_gid)
+        except OSError as e:
+            self.get_logger().warn(f'chown of {out} failed: {e}')
 
     def grid(self, expected, mine, entries):
         """level (top first) -> bay -> dict(loc: True/False/None, cartons [(id, found)])"""

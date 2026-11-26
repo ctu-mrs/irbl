@@ -362,6 +362,7 @@ class CropScanner(ShelfScanner):
         with open(os.path.join(out, 'report.html'), 'w') as f:
             f.write(self.html(summary, grid, scan))
         self.append_crop_run_files(summary, cells, out)
+        self.chown_to_host(out)
         return out, summary
 
     def grid(self, scan, cells):
